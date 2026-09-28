@@ -91,6 +91,13 @@ Assert ($null -eq $failed.KotlinDeclarations) 'Failed compilation returned an in
 $inputs.XamlPages = @()
 $empty = (Compile 'deleted').KotlinDeclarations
 Assert ($empty.Pages.Count -eq 0 -and $empty.Resources.Count -eq 0) 'Deleted input retained stale declarations.'
+$inputs.IsPass1 = $false
+$inputs.KotlinSymbols = @{ SchemaVersion = 1; DeclarationFingerprint = ('b' * 64); Declarations = $empty; Pages = @() }
+$emptyFinal = Compile 'deleted-final'
+Assert ($emptyFinal.KotlinImplementation.Declarations.Pages.Count -eq 0) 'Empty final compilation retained stale pages.'
+Assert ($emptyFinal.GeneratedXbfFiles.Count -eq 0) 'Empty final compilation retained stale XBF outputs.'
+$inputs.IsPass1 = $true
+$inputs.Remove('KotlinSymbols')
 
 $dictionaryPath = Join-Path $root 'Resources.xaml'
 [IO.File]::WriteAllText($dictionaryPath, '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" />')

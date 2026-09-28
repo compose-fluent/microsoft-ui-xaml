@@ -16,7 +16,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
             if (symbols.SchemaVersion != 1 || symbols.Declarations == null || symbols.Pages == null ||
                 symbols.DeclarationFingerprint == null || symbols.DeclarationFingerprint.Length != 64)
                 throw new ArgumentException("Invalid Kotlin XAML semantic symbol protocol.");
-            if (System.Text.Json.JsonSerializer.Serialize(declarations) != System.Text.Json.JsonSerializer.Serialize(symbols.Declarations))
+            if (!DeclarationTokens(declarations).SequenceEqual(DeclarationTokens(symbols.Declarations), StringComparer.Ordinal))
                 throw new ArgumentException("Kotlin XAML declarations changed after semantic compilation; rebuild the declaration input.");
             if (symbols.Pages.Count != declarations.Pages.Count || symbols.Pages.Select(x => x.ClassName).Distinct().Count() != symbols.Pages.Count)
                 throw new ArgumentException("Kotlin XAML semantic page set does not match declarations.");
@@ -32,6 +32,35 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                         handlers[0].ParameterTypeNames == null ||
                         !handlers[0].ParameterTypeNames.SequenceEqual(invoke.GetParameters().Select(x => x.ParameterType.FullName)))
                         throw new ArgumentException($"Kotlin XAML {info.ClassName.FullName}({assignment.LineNumberInfo.StartLineNumber},{assignment.LineNumberInfo.StartLinePosition}): handler {assignment.HandlerName} does not match {assignment.EventType.StandardName}.");
+                }
+            }
+        }
+
+        // Shared compiler builds do not depend on the executable's JSON serializer.
+        // Compare protocol values directly, including list boundaries and source positions.
+        private static IEnumerable<string> DeclarationTokens(KotlinXamlDeclarationIndex index)
+        {
+            yield return index.SchemaVersion.ToString();
+            yield return index.Resources.Count.ToString();
+            foreach (var resource in index.Resources) yield return resource;
+            yield return index.Pages.Count.ToString();
+            foreach (var page in index.Pages)
+            {
+                yield return page.ClassName; yield return page.ResourcePath; yield return page.BaseTypeName;
+                yield return page.IsApplication.ToString(); yield return page.Features.Count.ToString();
+                foreach (var feature in page.Features) yield return feature;
+                yield return page.Connections.Count.ToString();
+                foreach (var connection in page.Connections)
+                {
+                    yield return connection.Id.ToString(); yield return connection.TypeName; yield return connection.FieldName;
+                    yield return connection.Location.Line.ToString(); yield return connection.Location.Column.ToString();
+                    yield return connection.Events.Count.ToString();
+                    foreach (var assignment in connection.Events)
+                    {
+                        yield return assignment.Name; yield return assignment.HandlerName;
+                        yield return assignment.DeclaringTypeName; yield return assignment.DelegateTypeName;
+                        yield return assignment.Location.Line.ToString(); yield return assignment.Location.Column.ToString();
+                    }
                 }
             }
         }

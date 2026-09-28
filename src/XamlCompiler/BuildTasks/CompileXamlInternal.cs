@@ -842,7 +842,16 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
             // if there are no XAML files then issue a warning and exit (successfully), because we have nothing to do.
             if ((XamlApplications == null || !XamlApplications.Any()) && (XamlPages == null || XamlPages.Count == 0))
             {
-                if (IsKotlin) KotlinDeclarations = new KotlinXamlDeclarationIndex();
+                if (IsKotlin)
+                {
+                    KotlinDeclarations = new KotlinXamlDeclarationIndex();
+                    if (KotlinSymbols != null)
+                        KotlinXamlDeclarationWriter.ValidateSymbols(Array.Empty<XamlClassCodeInfo>(), KotlinDeclarations, KotlinSymbols);
+                    if (!IsPass1)
+                        KotlinImplementation = new KotlinXamlImplementationPlan {
+                            DeclarationFingerprint = KotlinSymbols.DeclarationFingerprint, Declarations = KotlinDeclarations
+                        };
+                }
                 LogWarning(new XamlValidationWarningNoXaml());
                 return true;        // exit the compiler but not as a failure, just "done"
             }
