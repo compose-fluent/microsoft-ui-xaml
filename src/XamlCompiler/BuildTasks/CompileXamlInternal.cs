@@ -722,7 +722,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         {
             foreach (ClassCodeGenFile codeGenFile in SourceFileManager.CodeGenFiles)
             {
-                ReportExistingGeneratedCodeFile(codeGenFile.TargetFolderFullPath, codeGenFile.BaseFileName);
+                if (!IsKotlin) ReportExistingGeneratedCodeFile(codeGenFile.TargetFolderFullPath, codeGenFile.BaseFileName);
             }
 
             foreach (TaskItemFilename tif in SourceFileManager.ProjectXamlTaskItems)
@@ -803,6 +803,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         }
 
         public KotlinXamlDeclarationIndex KotlinDeclarations { get; private set; }
+        public KotlinXamlImplementationPlan KotlinImplementation { get; private set; }
         public KotlinXamlSemanticSymbols KotlinSymbols { get; set; }
         private bool IsKotlin => Language.Name == ProgrammingLanguage.Kotlin;
 
@@ -811,8 +812,9 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
             bool result = true;
             bool shouldVerifyWorkDone = false;
             KotlinDeclarations = null;
-            if (IsKotlin && !IsPass1)
-                throw new NotSupportedException("Kotlin final XAML compilation is not implemented yet; only declaration analysis (IsPass1=true) is available.");
+            KotlinImplementation = null;
+            if (IsKotlin && !IsPass1 && KotlinSymbols == null)
+                throw new ArgumentException("Kotlin final compilation requires semantic symbols and application WinMD.");
 
             PerformanceUtility.Initialize(Log);
 
@@ -1026,6 +1028,14 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                         SourceFileManager.ClasslessXamlFiles.Select(x => x.ApparentRelativePath));
                     if (KotlinSymbols != null)
                         KotlinXamlDeclarationWriter.ValidateSymbols(_classCodeInfos.Values, KotlinDeclarations, KotlinSymbols);
+                    if (!IsPass1)
+                    {
+                        if (!GenerateKotlinXamlOutputs()) return false;
+                        KotlinImplementation = new KotlinXamlImplementationPlan {
+                            DeclarationFingerprint = KotlinSymbols.DeclarationFingerprint,
+                            Declarations = KotlinDeclarations
+                        };
+                    }
                     return true;
                 }
 
@@ -2427,6 +2437,38 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         }
 
         #region XBF processing
+        private bool GenerateKotlinXamlOutputs()
+        {
+            // Use the same harvester connection IDs, rewriter, checksums and XBF compiler as C#/C++.
+            foreach (var info in _classCodeInfos.Values)
+            {
+                List<FileNameAndContentPair> edited = null;
+                foreach (var file in info.PerXamlFileInfo)
+                {
+                    if (!GenerateEditedXamlFile(ref edited, info, file)) return false;
+                    var item = SourceFileManager.FindTaskItemByFullPath(file.FullPathToXamlFile);
+                    _newlyGeneratedXamlFiles.Add(new XbfFileNameInfo(item.SourceXamlFullPath, item.XamlGivenPath,
+                        item.XamlOutputFilename, item.XbfOutputFilename,
+                        ChecksumHelper.Instance.ComputeCheckSumForXamlFile(file.FullPathToXamlFile)));
+                }
+                WriteOutputFilesToDisk(edited, info.TargetFolder, true);
+            }
+            foreach (var item in SourceFileManager.ClasslessXamlFiles)
+            {
+                WriteOutputFilesToDisk(new List<FileNameAndContentPair> {
+                    new FileNameAndContentPair(Path.GetFileName(item.XamlOutputFilename), File.ReadAllText(item.SourceXamlFullPath))
+                }, item.TargetFolder, true);
+                _newlyGeneratedXamlFiles.Add(new XbfFileNameInfo(item.SourceXamlFullPath, item.XamlGivenPath,
+                    item.XamlOutputFilename, item.XbfOutputFilename));
+            }
+            if (!DisableXbfGeneration)
+            {
+                DetermineGenXbfPath(_projectInfo);
+                if (!GenerateXbfFiles(_newlyGeneratedXamlFiles) || !GenerateSdkXbfFiles()) return false;
+            }
+            return true;
+        }
+
         private bool GenerateXbfFiles(IEnumerable<IXbfFileNameInfo> xamlList)
         {
             if (xamlList.Any())

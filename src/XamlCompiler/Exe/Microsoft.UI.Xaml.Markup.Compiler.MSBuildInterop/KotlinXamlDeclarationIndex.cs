@@ -4,6 +4,12 @@ using System.Collections.Generic;
 
 namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
 {
+    public sealed class KotlinXamlImplementationPlan
+    {
+        public int SchemaVersion { get; set; } = 1;
+        public string DeclarationFingerprint { get; set; }
+        public KotlinXamlDeclarationIndex Declarations { get; set; }
+    }
     public sealed class KotlinXamlSemanticSymbols
     {
         public int SchemaVersion { get; set; }

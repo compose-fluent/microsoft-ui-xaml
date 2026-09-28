@@ -11,6 +11,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
     public sealed class CompilerOutputs
     {
         public KotlinXamlDeclarationIndex KotlinDeclarations { get; set; }
+        public KotlinXamlImplementationPlan KotlinImplementation { get; set; }
 
         public IList<string> GeneratedCodeFiles { get; set; }
 
