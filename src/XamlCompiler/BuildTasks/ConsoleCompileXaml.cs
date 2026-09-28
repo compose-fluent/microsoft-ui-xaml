@@ -127,6 +127,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.Executable
         private void SaveResults(CompileXamlInternal core, string outputFile)
         {
             CompilerOutputs co = new CompilerOutputs();
+            co.KotlinDeclarations = core.KotlinDeclarations;
             co.GeneratedCodeFiles = core.GeneratedCodeFiles;
             co.GeneratedXamlFiles = core.GeneratedXamlFiles;
             co.GeneratedXamlPagesFiles = core.GeneratedXamlPagesFiles;

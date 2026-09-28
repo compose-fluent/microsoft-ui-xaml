@@ -801,10 +801,16 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
             this.SourceFileManager.SaveState();
         }
 
+        public KotlinXamlDeclarationIndex KotlinDeclarations { get; private set; }
+        private bool IsKotlin => Language.Name == ProgrammingLanguage.Kotlin;
+
         public bool DoExecute()
         {
             bool result = true;
             bool shouldVerifyWorkDone = false;
+            KotlinDeclarations = null;
+            if (IsKotlin && !IsPass1)
+                throw new NotSupportedException("Kotlin final XAML compilation is not implemented yet; only declaration analysis (IsPass1=true) is available.");
 
             PerformanceUtility.Initialize(Log);
 
@@ -832,6 +838,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
             // if there are no XAML files then issue a warning and exit (successfully), because we have nothing to do.
             if ((XamlApplications == null || !XamlApplications.Any()) && (XamlPages == null || XamlPages.Count == 0))
             {
+                if (IsKotlin) KotlinDeclarations = new KotlinXamlDeclarationIndex();
                 LogWarning(new XamlValidationWarningNoXaml());
                 return true;        // exit the compiler but not as a failure, just "done"
             }
@@ -872,7 +879,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
             // During Pass 2, we can skip most type info collection if type info reflection is enabled since we don't need our type tables.
             bool skipPass2TypeInfo = EnableTypeInfoReflection;
 
-            if ((xamlTypeInfoNeeded == false) && (didAssembliesChange == false) && (didFeatureCtrlFlagsChange == false) && (didXamlOptionalChangesChange == false))
+            if (!IsKotlin && (xamlTypeInfoNeeded == false) && (didAssembliesChange == false) && (didFeatureCtrlFlagsChange == false) && (didXamlOptionalChangesChange == false))
             {
                 bool haveGeneratedPass2CodeFiles = ShortcutBackupRestoreGeneratedPass2Files_WhenNothingExternalHasChanged();
                 bool xamlFilesChanged = DidXAMLFilesChange();
@@ -934,7 +941,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                     // the file itself is different. Some of the feature ctrl flags will cause different code to be generated
                     // on a per page basis (i.e. EnableXBindDiagnostics), while others will only affect app.xaml (i.e. EnableWin32CodeGen).
                     // But we'll be conservative and just assume that all files need to regenerate if the flags have changed
-                    bool forceRegenerate = didAssembliesChange || didFeatureCtrlFlagsChange;
+                    bool forceRegenerate = IsKotlin || didAssembliesChange || didFeatureCtrlFlagsChange;
                     if (IsPass1 && !tif.OutOfDate() && !forceRegenerate)
                     {
                         // If the file is up to date then report the existing "on disk" generated
@@ -1007,6 +1014,15 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                             return false;
                         }
                     }
+                }
+
+                // Always emit a complete snapshot, including file deletion. The caller owns
+                // up-to-date checks for this mode; it cannot reuse partial C#/C++ codegen state.
+                if (IsKotlin)
+                {
+                    KotlinDeclarations = KotlinXamlDeclarationWriter.Create(_classCodeInfos.Values,
+                        SourceFileManager.ClasslessXamlFiles.Select(x => x.ApparentRelativePath));
+                    return true;
                 }
 
                 // Create Code Generator
@@ -2693,6 +2709,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 return false;
             }
 
+            if (IsKotlin) KotlinXamlDeclarationWriter.ValidateTree(xamlDomRoot);
             return ValidateXaml(xamlDomRoot, xamlFileName);
         }
 

@@ -10,6 +10,8 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
 {
     public sealed class CompilerOutputs
     {
+        public KotlinXamlDeclarationIndex KotlinDeclarations { get; set; }
+
         public IList<string> GeneratedCodeFiles { get; set; }
 
         public IList<string> GeneratedXamlFiles { get; set; }

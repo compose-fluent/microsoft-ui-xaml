@@ -16,6 +16,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
     {
         public const string CSharp = "C#";
         public const string VB = "VB";
+        public const string Kotlin = "Kotlin";
 
         // C++ with CX extensions (and hats)
         public const string CppCX = "C++";
@@ -83,7 +84,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
             this.Name = name;
             this.IsExperimental = isExperimental;
             this.IsManaged = isManaged;
-            this.IsNative = !isManaged;
+            this.IsNative = !isManaged && name != ProgrammingLanguage.Kotlin;
             this.IsStringNullable = isStringNullable;
             this.Pass1Extension = pass1Extension;
             this.Pass2Extension = pass2Extension;
@@ -102,6 +103,9 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         }
 
         private static Language[] languages = {
+            // Kotlin consumes the harvester model instead of generating a second user class.
+            new Language(ProgrammingLanguage.Kotlin, ".xaml.declarations.json", ".xaml.plan.json", false, true, false,
+                null, null, null, null, null, null, null, null, null, null, null),
             new Language(
                 ProgrammingLanguage.CSharp,
                 ".g.i.cs", ".g.cs", true, true, false,
