@@ -19,6 +19,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
         public string ProjectPath { get; set; }
 
         public string Language { get; set; }
+        public KotlinXamlSemanticSymbols KotlinSymbols { get; set; }
 
         public string LanguageSourceExtension { get; set; }
 

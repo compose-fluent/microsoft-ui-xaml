@@ -62,6 +62,23 @@ Assert ($button.Events[0].Location.Line -eq 4 -and $button.Events[0].Location.Co
 $second = (Compile 'second').KotlinDeclarations
 Assert (($first | ConvertTo-Json -Depth 12 -Compress) -ceq ($second | ConvertTo-Json -Depth 12 -Compress)) 'Non-deterministic index.'
 
+$inputs.KotlinSymbols = @{
+    SchemaVersion = 1; DeclarationFingerprint = ('a' * 64); Declarations = $first
+    Pages = @(@{ ClassName = 'probe.MainPage'; Handlers = @(@{
+        Name = 'onClick'; ReturnTypeName = 'System.Void'
+        ParameterTypeNames = @('System.Object', 'Microsoft.UI.Xaml.RoutedEventArgs')
+    }) })
+}
+$null = Compile 'valid-handler'
+$inputs.KotlinSymbols.Pages[0].Handlers[0].ParameterTypeNames = @('System.Object', 'System.String')
+$invalid = Compile 'invalid-handler' 1
+Assert (($invalid.MSBuildLogEntries | Where-Object Type -EQ 2).Message -match 'does not match') 'Wrong event signature was not diagnosed.'
+$inputs.KotlinSymbols.Pages[0].Handlers[0].ParameterTypeNames = @('System.Object', 'Microsoft.UI.Xaml.RoutedEventArgs')
+[IO.File]::WriteAllText($pagePath, $xaml.Replace('myButton', 'renamedButton'))
+$stale = Compile 'stale-symbols' 1
+Assert (($stale.MSBuildLogEntries | Where-Object Type -EQ 2).Message -match 'changed after semantic') 'Stale semantic declarations were accepted.'
+$inputs.Remove('KotlinSymbols')
+
 [IO.File]::WriteAllText($pagePath, $xaml.Replace('myButton', 'renamedButton'))
 $renamed = (Compile 'rename').KotlinDeclarations
 Assert (@($renamed.Pages[0].Connections | Where-Object FieldName -EQ 'myButton').Count -eq 0) 'Stale named element.'

@@ -10,6 +10,31 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
 {
     internal static class KotlinXamlDeclarationWriter
     {
+        internal static void ValidateSymbols(IEnumerable<XamlClassCodeInfo> classes,
+            KotlinXamlDeclarationIndex declarations, KotlinXamlSemanticSymbols symbols)
+        {
+            if (symbols.SchemaVersion != 1 || symbols.Declarations == null || symbols.Pages == null ||
+                symbols.DeclarationFingerprint == null || symbols.DeclarationFingerprint.Length != 64)
+                throw new ArgumentException("Invalid Kotlin XAML semantic symbol protocol.");
+            if (System.Text.Json.JsonSerializer.Serialize(declarations) != System.Text.Json.JsonSerializer.Serialize(symbols.Declarations))
+                throw new ArgumentException("Kotlin XAML declarations changed after semantic compilation; rebuild the declaration input.");
+            if (symbols.Pages.Count != declarations.Pages.Count || symbols.Pages.Select(x => x.ClassName).Distinct().Count() != symbols.Pages.Count)
+                throw new ArgumentException("Kotlin XAML semantic page set does not match declarations.");
+            foreach (var info in classes)
+            {
+                var page = symbols.Pages.SingleOrDefault(x => x.ClassName == info.ClassName.FullName);
+                if (page?.Handlers == null) throw new ArgumentException($"Missing Kotlin symbols for {info.ClassName.FullName}.");
+                foreach (var assignment in info.PerXamlFileInfo.SelectMany(x => x.ConnectionIdElements).SelectMany(x => x.EventAssignments))
+                {
+                    var handlers = page.Handlers.Where(x => x.Name == assignment.HandlerName).ToList();
+                    var invoke = assignment.EventType.UnderlyingType.GetMethod("Invoke");
+                    if (handlers.Count != 1 || invoke == null || handlers[0].ReturnTypeName != invoke.ReturnType.FullName ||
+                        handlers[0].ParameterTypeNames == null ||
+                        !handlers[0].ParameterTypeNames.SequenceEqual(invoke.GetParameters().Select(x => x.ParameterType.FullName)))
+                        throw new ArgumentException($"Kotlin XAML {info.ClassName.FullName}({assignment.LineNumberInfo.StartLineNumber},{assignment.LineNumberInfo.StartLinePosition}): handler {assignment.HandlerName} does not match {assignment.EventType.StandardName}.");
+                }
+            }
+        }
         // This is a serialization view over the compiler DOM/harvester, not a second XAML parser.
         internal static void ValidateTree(XamlDomObject root)
         {
@@ -63,6 +88,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 }
                 if (page.Connections.Any(x => x.FieldName != null)) page.Features.Add("named-elements");
                 if (page.Connections.Any(x => x.Events.Count != 0)) page.Features.Add("events");
+                page.Features.Sort(StringComparer.Ordinal);
                 result.Pages.Add(page);
             }
             return result;

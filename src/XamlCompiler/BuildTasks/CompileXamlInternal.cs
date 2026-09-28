@@ -281,6 +281,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         // Populates inputs common to both the executable and MSBuild task compiler
         public void PopulateFromCompilerInputs(CompilerInputs i)
         {
+            KotlinSymbols = i.KotlinSymbols;
             FeatureControlFlags = TryParseFeatureFlags(i.FeatureControlFlags);
 
             ClIncludeFiles = GetFileItems(i.ClIncludeFiles);
@@ -802,6 +803,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         }
 
         public KotlinXamlDeclarationIndex KotlinDeclarations { get; private set; }
+        public KotlinXamlSemanticSymbols KotlinSymbols { get; set; }
         private bool IsKotlin => Language.Name == ProgrammingLanguage.Kotlin;
 
         public bool DoExecute()
@@ -1022,6 +1024,8 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 {
                     KotlinDeclarations = KotlinXamlDeclarationWriter.Create(_classCodeInfos.Values,
                         SourceFileManager.ClasslessXamlFiles.Select(x => x.ApparentRelativePath));
+                    if (KotlinSymbols != null)
+                        KotlinXamlDeclarationWriter.ValidateSymbols(_classCodeInfos.Values, KotlinDeclarations, KotlinSymbols);
                     return true;
                 }
 

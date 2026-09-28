@@ -8,4 +8,6 @@ Currently this mode supports known SDK element types, named elements and ordinar
 
 Run `Test-DeclarationIndex.ps1` with `-Compiler`, `-ReferenceDirectories` and `-OutputDirectory`. It invokes the real executable and validates repeat/rename/deletion/resource handling, unsupported-feature failure and existing C#/CppWinRT Pass 1 source generation. Output files are retained for inspection.
 
+An optional `KotlinSymbols` input carries the schema-version-1 semantic sidecar from Kotlin compilation: the declaration snapshot and its fingerprint, plus each page's ordinary handler names, return types and parameter types. When present, declarations must match the current harvest and handler signatures must match the actual WinMD delegate `Invoke` method. Private methods are represented only in this compile-time sidecar. The smoke script also checks valid/invalid signatures and stale declarations.
+
 The Kotlin consumer fixture was generated with Windows App SDK 2.5.1's WinUI 2.3.9, Foundation 2.3.12, InteractiveExperiences 2.1.9 (metadata/10.0.18362.0), and Windows SDK contracts 10.0.26100.1742. These are test provenance, not hard-coded protocol dependencies.

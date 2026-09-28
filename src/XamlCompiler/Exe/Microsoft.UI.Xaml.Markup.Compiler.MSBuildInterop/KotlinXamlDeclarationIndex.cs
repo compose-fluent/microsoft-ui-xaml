@@ -4,6 +4,27 @@ using System.Collections.Generic;
 
 namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
 {
+    public sealed class KotlinXamlSemanticSymbols
+    {
+        public int SchemaVersion { get; set; }
+        public string DeclarationFingerprint { get; set; }
+        public KotlinXamlDeclarationIndex Declarations { get; set; }
+        public List<KotlinXamlPageSymbols> Pages { get; set; }
+    }
+
+    public sealed class KotlinXamlPageSymbols
+    {
+        public string ClassName { get; set; }
+        public List<KotlinXamlHandlerSymbol> Handlers { get; set; }
+    }
+
+    public sealed class KotlinXamlHandlerSymbol
+    {
+        public string Name { get; set; }
+        public string ReturnTypeName { get; set; }
+        public List<string> ParameterTypeNames { get; set; }
+    }
+
     // Language-neutral WinRT names are intentional. Kotlin projection mapping belongs to kotlin-winrt.
     public sealed class KotlinXamlDeclarationIndex
     {
