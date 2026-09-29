@@ -52,7 +52,7 @@ jobs:
             $config | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $configPath -Encoding utf8NoBOM
           }
           $common = @('/restore', '/p:Configuration=Release', '/p:Platform=x64', '/p:IsInternalWinUIBuild=false', "/p:NugetPackageDirectory=$env:USERPROFILE\.nuget\packages", "/p:RestorePackagesPath=$env:USERPROFILE\.nuget\packages", '/p:RestoreSources=https://api.nuget.org/v3/index.json', "/p:MSBuildCachePackageRoot=$pwd\packages\Microsoft.MSBuildCache.Local.0.1.268-preview", '/verbosity:minimal', '/nologo')
-          msbuild src/XamlCompiler/Exe/Microsoft.UI.Xaml.Markup.Compiler.Executable.csproj @common
+          msbuild src/XamlCompiler/Exe/Microsoft.UI.Xaml.Markup.Compiler.Executable.csproj /p:PlatformTarget=x64 /p:Prefer32Bit=false @common
           if ($LASTEXITCODE) { throw 'Executable build failed' }
           msbuild src/XamlCompiler/Microsoft.UI.Xaml.Markup.Compiler.csproj @common
           if ($LASTEXITCODE) { throw 'Shared compiler build failed' }
@@ -84,7 +84,8 @@ jobs:
         shell: pwsh
         run: |
           $assets = @(Get-ChildItem BuildOutput/kotlin-release -File | Where-Object { $_.Name -match '\.(zip|sha256)$' } | ForEach-Object FullName)
-          gh release create $env:GITHUB_REF_NAME @assets --verify-tag --title $env:GITHUB_REF_NAME --notes 'Kotlin XamlCompiler protocol v1. GenXbf is supplied by the selected Windows App SDK NuGet package.'
+          $releaseOptions = if (($env:GITHUB_REF_NAME -replace '^kotlin-xamlc-v', '') -match '-') { @('--prerelease') } else { @() }
+          gh release create $env:GITHUB_REF_NAME @assets @releaseOptions --verify-tag --title $env:GITHUB_REF_NAME --notes 'Kotlin XamlCompiler protocol v1. GenXbf is supplied by the selected Windows App SDK NuGet package.'
           if ($LASTEXITCODE) { throw 'Release upload failed' }
     permissions:
       contents: write
