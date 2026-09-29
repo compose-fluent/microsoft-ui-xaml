@@ -1,0 +1,81 @@
+name: Kotlin XamlCompiler
+
+on:
+  push:
+    branches: [kotlin-xamlc]
+    tags: ['kotlin-xamlc-v*']
+    paths: ['src/XamlCompiler/**', '.github/workflows/kotlin-xamlc.yml', 'eng/**', 'Directory.Build.*']
+  pull_request:
+    paths: ['src/XamlCompiler/**', '.github/workflows/kotlin-xamlc.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compiler:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: NuGet/setup-nuget@v2
+        with:
+          nuget-version: '6.14.0'
+      - name: Restore build and test dependencies
+        shell: pwsh
+        run: |
+          nuget install Microsoft.MSBuildCache.Local -Version 0.1.268-preview -OutputDirectory packages -Source https://api.nuget.org/v3/index.json -NonInteractive
+          if ($LASTEXITCODE) { throw 'MSBuildCache restore failed' }
+          $packages = @{
+            'Microsoft.Windows.SDK.Contracts' = '10.0.26100.1742'
+            'Microsoft.WindowsAppSDK.WinUI' = '2.3.9'
+            'Microsoft.WindowsAppSDK.Foundation' = '2.3.12'
+            'Microsoft.WindowsAppSDK.InteractiveExperiences' = '2.1.9'
+          }
+          foreach ($entry in $packages.GetEnumerator()) {
+            nuget install $entry.Key -Version $entry.Value -OutputDirectory BuildOutput/ci-packages -Source https://api.nuget.org/v3/index.json -NonInteractive
+            if ($LASTEXITCODE) { throw "Restore failed: $($entry.Key)" }
+          }
+      - name: Build executable and both shared compiler targets
+        shell: pwsh
+        run: |
+          $common = @('/restore', '/p:Configuration=Release', '/p:Platform=x64', '/p:IsInternalWinUIBuild=false', "/p:NugetPackageDirectory=$env:USERPROFILE\.nuget\packages", "/p:RestorePackagesPath=$env:USERPROFILE\.nuget\packages", '/p:RestoreSources=https://api.nuget.org/v3/index.json', "/p:MSBuildCachePackageRoot=$pwd\packages\Microsoft.MSBuildCache.Local.0.1.268-preview", '/verbosity:minimal', '/nologo')
+          msbuild src/XamlCompiler/Exe/Microsoft.UI.Xaml.Markup.Compiler.Executable.csproj @common
+          if ($LASTEXITCODE) { throw 'Executable build failed' }
+          msbuild src/XamlCompiler/Microsoft.UI.Xaml.Markup.Compiler.csproj @common
+          if ($LASTEXITCODE) { throw 'Shared compiler build failed' }
+      - name: Kotlin protocol and existing CSharp / CppWinRT regression
+        shell: pwsh
+        run: |
+          $refs = @(
+            "$pwd/BuildOutput/ci-packages/Microsoft.Windows.SDK.Contracts.10.0.26100.1742/ref/netstandard2.0",
+            "$pwd/BuildOutput/ci-packages/Microsoft.WindowsAppSDK.WinUI.2.3.9/metadata",
+            "$pwd/BuildOutput/ci-packages/Microsoft.WindowsAppSDK.Foundation.2.3.12/metadata",
+            "$pwd/BuildOutput/ci-packages/Microsoft.WindowsAppSDK.InteractiveExperiences.2.1.9/metadata/10.0.18362.0"
+          )
+          ./src/XamlCompiler/Tests/Kotlin/Test-DeclarationIndex.ps1 -Compiler BuildOutput/obj/amd64fre/src/XamlCompiler/Exe/Microsoft.UI.Xaml.Markup.Compiler.Executable/XamlCompiler.exe -ReferenceDirectories $refs -OutputDirectory BuildOutput/kotlin-tests
+      - name: Package versioned compiler
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME -replace '^kotlin-xamlc-v', '' } else { "0.1.0-ci.$env:GITHUB_RUN_NUMBER" }
+          ./src/XamlCompiler/Tools/Package-KotlinXamlCompiler.ps1 -CompilerDirectory BuildOutput/obj/amd64fre/src/XamlCompiler/Exe/Microsoft.UI.Xaml.Markup.Compiler.Executable -Version $version -OutputDirectory BuildOutput/kotlin-release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kotlin-xamlc-win-x64
+          path: |
+            BuildOutput/kotlin-release/*.zip
+            BuildOutput/kotlin-release/*.sha256
+      - name: Publish tagged compiler release
+        if: startsWith(github.ref, 'refs/tags/kotlin-xamlc-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $assets = @(Get-ChildItem BuildOutput/kotlin-release -File | Where-Object { $_.Name -match '\.(zip|sha256)$' } | ForEach-Object FullName)
+          gh release create $env:GITHUB_REF_NAME @assets --verify-tag --title $env:GITHUB_REF_NAME --notes 'Kotlin XamlCompiler protocol v1. GenXbf is supplied by the selected Windows App SDK NuGet package.'
+          if ($LASTEXITCODE) { throw 'Release upload failed' }
+    permissions:
+      contents: write
