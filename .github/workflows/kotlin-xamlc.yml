@@ -92,19 +92,25 @@ jobs:
               ProjectPath = "$resourceRoot/probe.proj"; ProjectName = 'probe'; RootNamespace = 'probe'; OutputType = 'WinExe'
               Language = 'Kotlin'; LanguageSourceExtension = '.kt'; IsPass1 = $true
               OutputPath = "$resourceRoot/compiled"; SavedStateFile = "$resourceRoot/state.xml"; TargetPlatformMinVersion = '10.0.19041.0'
-              ReferenceAssemblies = $references; ReferenceAssemblyPaths = @($refs | ForEach-Object { @{ ItemSpec = $_; FullPath = $_ } })
+              ReferenceAssemblies = $references; ReferenceAssemblyPaths = @($refs + "$env:WINDIR/Microsoft.NET/Framework64/v4.0.30319" | ForEach-Object { @{ ItemSpec = $_; FullPath = $_ } })
               GenXbfPath = "$repo/BuildOutput/ci-packages/Microsoft.WindowsAppSDK.WinUI.2.3.9/tools"
               XamlPages = @(@{ ItemSpec = $xaml; FullPath = $xaml }); DisableXbfGeneration = $false
             }
             $input | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath "$resourceRoot/input.json" -Encoding utf8NoBOM
             & ./XamlCompiler.exe "$resourceRoot/input.json" "$resourceRoot/declarations.json"
-            if ($LASTEXITCODE) { throw 'Packaged Kotlin declaration compilation failed' }
+            if ($LASTEXITCODE) {
+              Get-Content -LiteralPath "$resourceRoot/declarations.json"
+              throw 'Packaged Kotlin declaration compilation failed'
+            }
             $declarations = (Get-Content -LiteralPath "$resourceRoot/declarations.json" -Raw | ConvertFrom-Json).KotlinDeclarations
             $input.IsPass1 = $false
             $input.KotlinSymbols = @{ SchemaVersion = 2; DeclarationFingerprint = ('a' * 64); Declarations = $declarations; Pages = @() }
             $input | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath "$resourceRoot/input.json" -Encoding utf8NoBOM
             & ./XamlCompiler.exe "$resourceRoot/input.json" "$resourceRoot/output.json"
-            if ($LASTEXITCODE) { throw 'Packaged Kotlin XBF compilation failed' }
+            if ($LASTEXITCODE) {
+              Get-Content -LiteralPath "$resourceRoot/output.json"
+              throw 'Packaged Kotlin XBF compilation failed'
+            }
             $result = Get-Content -LiteralPath "$resourceRoot/output.json" -Raw | ConvertFrom-Json
             if (!$result.GeneratedXbfFiles.Count -or !(Get-ChildItem "$resourceRoot/compiled" -Recurse -Filter '*.xbf')) { throw 'Packaged Kotlin compiler produced no XBF' }
           } finally { Pop-Location }
