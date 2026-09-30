@@ -59,6 +59,10 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
         public bool IsScopeRoot { get; set; }
         public bool IsTemplateChild { get; set; }
         public string DataTypeName { get; set; }
+        public int Phase { get; set; }
+        public bool CanBeInstantiatedLater { get; set; }
+        public bool IsUnloadableRoot { get; set; }
+        public List<int> Children { get; set; } = new List<int>();
         public KotlinXamlSourceLocation Location { get; set; }
         public List<KotlinXamlEventDeclaration> Events { get; set; } = new List<KotlinXamlEventDeclaration>();
         public List<KotlinXamlBindingDeclaration> Bindings { get; set; } = new List<KotlinXamlBindingDeclaration>();
@@ -72,6 +76,8 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
         public string Mode { get; set; }
         public bool IsAttachable { get; set; }
         public bool IsEvent { get; set; }
+        public bool IsLoad { get; set; }
+        public int Phase { get; set; }
         public KotlinXamlBindingExpression Expression { get; set; }
         public KotlinXamlBindingExpression BindBack { get; set; }
         public string Converter { get; set; }

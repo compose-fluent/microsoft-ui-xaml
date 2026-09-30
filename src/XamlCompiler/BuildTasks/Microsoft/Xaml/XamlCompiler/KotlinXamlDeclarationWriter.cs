@@ -56,6 +56,9 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                     yield return connection.ElementName; yield return connection.ScopeId.ToString();
                     yield return connection.IsScopeRoot.ToString(); yield return connection.IsTemplateChild.ToString();
                     yield return connection.DataTypeName;
+                    yield return connection.Phase.ToString(); yield return connection.CanBeInstantiatedLater.ToString();
+                    yield return connection.IsUnloadableRoot.ToString(); yield return connection.Children.Count.ToString();
+                    foreach (var child in connection.Children) yield return child.ToString();
                     yield return connection.Location.Line.ToString(); yield return connection.Location.Column.ToString();
                     yield return connection.Events.Count.ToString();
                     foreach (var assignment in connection.Events)
@@ -69,6 +72,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                     {
                         yield return binding.Name; yield return binding.DeclaringTypeName; yield return binding.TypeName;
                         yield return binding.Mode; yield return binding.IsAttachable.ToString(); yield return binding.IsEvent.ToString();
+                        yield return binding.IsLoad.ToString(); yield return binding.Phase.ToString();
                         foreach (var token in ExpressionTokens(binding.Expression)) yield return token;
                         foreach (var token in ExpressionTokens(binding.BindBack)) yield return token;
                         foreach (var token in ExpressionTokens(binding.FallbackValue)) yield return token;
@@ -103,9 +107,10 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                     // Compiler-only directives are intentionally unknown to the runtime
                     // schema. Their values are validated by XamlDomValidator and harvested
                     // into the binding universe before the Kotlin declaration export.
-                    if (member.Member.IsUnknown && !DomHelper.IsDataTypeMember(member) && !DomHelper.IsDefaultBindModeMember(member))
+                    if (member.Member.IsUnknown && !DomHelper.IsDataTypeMember(member) && !DomHelper.IsDefaultBindModeMember(member) &&
+                        !DomHelper.IsPhaseMember(member) && !DomHelper.IsLoadMember(member) && !DomHelper.IsDeferLoadStrategyMember(member))
                         throw new NotSupportedException($"Kotlin XAML ({member.StartLineNumber},{member.StartLinePosition}): unresolved member {member.Member.Name}.");
-                    if (member.Member.IsDirective && new[] { "Load", "DeferLoadStrategy", "Phase", "Properties" }.Contains(member.Member.Name))
+                    if (member.Member.IsDirective && member.Member.Name == "Properties")
                         throw new NotSupportedException($"Kotlin XAML ({member.StartLineNumber},{member.StartLinePosition}): x:{member.Member.Name} is not implemented yet.");
                 }
             }
@@ -126,8 +131,6 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 };
                 foreach (var element in file.ConnectionIdElements.OrderBy(x => x.ConnectionId))
                 {
-                    if (element.CanBeInstantiatedLater)
-                        throw new NotSupportedException($"Kotlin XAML {page.ResourcePath}({element.LineNumberInfo.StartLineNumber}): deferred loading support is not implemented yet.");
                     var connection = new KotlinXamlConnectionDeclaration {
                         Id = element.ConnectionId, TypeName = element.Type?.UnderlyingType?.FullName,
                         FieldName = element.FieldDefinition?.FieldName, ElementName = element.ElementName,
@@ -139,6 +142,9 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                         // The file root's local CLR type is deliberately unresolved in pass 1.
                         // Its identity is already owned by x:Class and must stay stable in pass 2.
                         DataTypeName = element.BindUniverse.IsFileRoot ? info.ClassName.FullName : element.BindUniverse.DataRootType?.UnderlyingType?.FullName,
+                        Phase = element.PhaseAssignment?.Phase ?? 0,
+                        CanBeInstantiatedLater = element.CanBeInstantiatedLater, IsUnloadableRoot = element.IsUnloadableRoot,
+                        Children = element.AllChildren.Select(x => x.ConnectionId).Distinct().OrderBy(x => x).ToList(),
                         Location = Location(element.LineNumberInfo)
                     };
                     if (String.IsNullOrEmpty(connection.TypeName))
@@ -164,6 +170,8 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 if (page.Connections.Any(x => x.Events.Count != 0)) page.Features.Add("events");
                 if (page.Connections.Any(x => x.Bindings.Count != 0)) page.Features.Add("compiled-bindings");
                 if (page.Connections.Any(x => x.IsTemplateChild)) page.Features.Add("templates");
+                if (page.Connections.Any(x => x.Phase != 0)) page.Features.Add("phased-bindings");
+                if (page.Connections.Any(x => x.CanBeInstantiatedLater)) page.Features.Add("deferred-elements");
                 page.Features.Sort(StringComparer.Ordinal);
                 result.Pages.Add(page);
             }
@@ -175,6 +183,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
             TypeName = assignment.MemberType.UnderlyingType.FullName,
             Mode = assignment.IsTrackingTarget ? "TwoWay" : assignment.IsTrackingSource ? "OneWay" : "OneTime",
             IsAttachable = assignment.IsAttachable,
+            IsLoad = assignment is BoundLoadAssignment, Phase = assignment.ComputedPhase,
             Expression = KotlinBindingExpressionWriter.Parse(assignment.BindingPath, assignment),
             BindBack = assignment.BindBackPath == null ? null : KotlinBindingExpressionWriter.Parse(assignment.BindBackPath, assignment),
             Converter = assignment.Converter, ConverterParameter = assignment.ConverterParameter, ConverterLanguage = assignment.ConverterLanguage,
