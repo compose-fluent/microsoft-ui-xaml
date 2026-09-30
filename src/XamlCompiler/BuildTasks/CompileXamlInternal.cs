@@ -2420,7 +2420,9 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         private bool GenerateEditedXamlFile(ref List<FileNameAndContentPair> generatedSources, XamlClassCodeInfo classCodeInfo, XamlFileCodeInfo fileCodeInfo)
         {
             PerformanceUtility.FireCodeMarker(CodeMarkerEvent.perfXC_PageEditStart, fileCodeInfo.SourceXamlGivenPath);
-            XamlConnectionIdRewriter connectionIdRewriter = new XamlConnectionIdRewriter();
+            XamlConnectionIdRewriter connectionIdRewriter = new XamlConnectionIdRewriter {
+                ResolveBindingPaths = Language.Name != ProgrammingLanguage.Kotlin
+            };
             string newXamlContents = connectionIdRewriter.Edit(fileCodeInfo.FullPathToXamlFile, classCodeInfo, fileCodeInfo);
 
             if (connectionIdRewriter.Errors.Count > 0)

@@ -178,6 +178,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Xaml\XamlCompiler\XamlDomValidator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Xaml\XamlCompiler\XamlHarvester.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Xaml\XamlCompiler\KotlinXamlDeclarationWriter.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Xaml\XamlCompiler\KotlinBindingExpressionWriter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Xaml\XamlCompiler\XamlTypeNameConverter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Xaml\XamlCompiler\ForwardDeclaringNamespace.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Microsoft\Xaml\XamlCompiler\XamlProjectInfo.cs" />

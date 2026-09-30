@@ -24,7 +24,8 @@ Get-ChildItem -LiteralPath $stage -File | Sort-Object Name | ForEach-Object {
 }
 $manifest = [ordered]@{
     schemaVersion = 1
-    protocolVersion = 1
+    protocolVersion = 2
+    features = @('named-elements', 'events', 'compiled-bindings', 'templates')
     version = $Version
     host = 'win-x64'
     sourceRevision = $revision

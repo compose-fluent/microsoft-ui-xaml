@@ -24,6 +24,11 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
             get { return this.errors; }
         }
 
+        // Kotlin's semantic pass resolves private members and generated x:Name
+        // properties. The common textual rewrite must not resolve those again
+        // against the public WinMD surface; C# and C++ keep their normal path.
+        internal bool ResolveBindingPaths { get; set; } = true;
+
         public string Parse(string xamlText, IXamlClassCodeInfo classCodeInfo, IXamlFileCodeInfo fileCodeInfo)
         {
             if (classCodeInfo == null)
@@ -140,7 +145,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 foreach (BindAssignment bind in connectionIdElement.BindAssignments)
                 {
                     this.AttributeProcessing(bind, true);
-                    bind.ParsePath();
+                    if (ResolveBindingPaths) bind.ParsePath();
                 }
 
                 // Erase the x:Phase Hookup (leaving space where it was)
@@ -155,7 +160,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 foreach (BoundEventAssignment bndEvt in connectionIdElement.BoundEventAssignments)
                 {
                     this.AttributeProcessing(bndEvt, true);
-                    bndEvt.ParsePath();
+                    if (ResolveBindingPaths) bndEvt.ParsePath();
                 }
             }
 

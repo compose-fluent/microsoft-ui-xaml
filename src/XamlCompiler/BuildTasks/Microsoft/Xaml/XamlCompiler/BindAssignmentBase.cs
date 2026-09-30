@@ -22,6 +22,8 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         public ConnectionIdElement ConnectionIdElement { get; }
         public BindPathStep PathStep { get; protected set; }
         public LineNumberInfo LineNumberInfo { get; }
+        internal string BindingPath => GetBindingPath(bindItem);
+        internal XamlDomObject BindingNode => bindItem;
 
         public BindAssignmentBase(XamlDomMember domMember, BindUniverse bindUniverse, ConnectionIdElement connectionIdElement)
         {

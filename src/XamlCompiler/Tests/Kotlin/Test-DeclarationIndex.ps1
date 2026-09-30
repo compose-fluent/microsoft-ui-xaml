@@ -49,7 +49,7 @@ function Assert([bool] $condition, [string] $message) {
     if (!$condition) { throw $message }
 }
 $first = (Compile 'first').KotlinDeclarations
-Assert ($first.SchemaVersion -eq 1) 'Missing protocol version.'
+Assert ($first.SchemaVersion -eq 2) 'Missing protocol version.'
 Assert ($first.Pages.Count -eq 1) 'Expected exactly one page.'
 $page = $first.Pages[0]
 Assert ($page.ClassName -eq 'probe.MainPage') 'Incorrect x:Class.'
@@ -63,7 +63,7 @@ $second = (Compile 'second').KotlinDeclarations
 Assert (($first | ConvertTo-Json -Depth 12 -Compress) -ceq ($second | ConvertTo-Json -Depth 12 -Compress)) 'Non-deterministic index.'
 
 $inputs.KotlinSymbols = @{
-    SchemaVersion = 1; DeclarationFingerprint = ('a' * 64); Declarations = $first
+    SchemaVersion = 2; DeclarationFingerprint = ('a' * 64); Declarations = $first
     Pages = @(@{ ClassName = 'probe.MainPage'; Handlers = @(@{
         Name = 'onClick'; ReturnTypeName = 'System.Void'
         ParameterTypeNames = @('System.Object', 'Microsoft.UI.Xaml.RoutedEventArgs')
@@ -85,14 +85,15 @@ Assert (@($renamed.Pages[0].Connections | Where-Object FieldName -EQ 'myButton')
 Assert (@($renamed.Pages[0].Connections | Where-Object FieldName -EQ 'renamedButton').Count -eq 1) 'Missing renamed element.'
 
 [IO.File]::WriteAllText($pagePath, $xaml.Replace('Content="Click"', 'Content="{x:Bind Value}"'))
-$failed = Compile 'unsupported-binding' 1
-Assert ($null -eq $failed.KotlinDeclarations) 'Failed compilation returned an index.'
+$bound = (Compile 'compiled-binding').KotlinDeclarations
+$binding = @($bound.Pages[0].Connections | Where-Object FieldName -EQ 'myButton')[0].Bindings[0]
+Assert ($binding.Name -eq 'Content' -and $binding.Expression.Name -eq 'Value' -and $binding.Mode -eq 'OneTime') 'Compiled binding expression was not exported.'
 
 $inputs.XamlPages = @()
 $empty = (Compile 'deleted').KotlinDeclarations
 Assert ($empty.Pages.Count -eq 0 -and $empty.Resources.Count -eq 0) 'Deleted input retained stale declarations.'
 $inputs.IsPass1 = $false
-$inputs.KotlinSymbols = @{ SchemaVersion = 1; DeclarationFingerprint = ('b' * 64); Declarations = $empty; Pages = @() }
+$inputs.KotlinSymbols = @{ SchemaVersion = 2; DeclarationFingerprint = ('b' * 64); Declarations = $empty; Pages = @() }
 $emptyFinal = Compile 'deleted-final'
 Assert ($emptyFinal.KotlinImplementation.Declarations.Pages.Count -eq 0) 'Empty final compilation retained stale pages.'
 Assert ($emptyFinal.GeneratedXbfFiles.Count -eq 0) 'Empty final compilation retained stale XBF outputs.'

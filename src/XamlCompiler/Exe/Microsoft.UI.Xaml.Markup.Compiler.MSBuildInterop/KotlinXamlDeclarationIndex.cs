@@ -6,7 +6,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
 {
     public sealed class KotlinXamlImplementationPlan
     {
-        public int SchemaVersion { get; set; } = 1;
+        public int SchemaVersion { get; set; } = 2;
         public string DeclarationFingerprint { get; set; }
         public KotlinXamlDeclarationIndex Declarations { get; set; }
     }
@@ -34,7 +34,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
     // Language-neutral WinRT names are intentional. Kotlin projection mapping belongs to kotlin-winrt.
     public sealed class KotlinXamlDeclarationIndex
     {
-        public int SchemaVersion { get; set; } = 1;
+        public int SchemaVersion { get; set; } = 2;
         public List<KotlinXamlPageDeclaration> Pages { get; set; } = new List<KotlinXamlPageDeclaration>();
         public List<string> Resources { get; set; } = new List<string>();
     }
@@ -54,8 +54,45 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
         public int Id { get; set; }
         public string TypeName { get; set; }
         public string FieldName { get; set; }
+        public string ElementName { get; set; }
+        public int ScopeId { get; set; }
+        public bool IsScopeRoot { get; set; }
+        public bool IsTemplateChild { get; set; }
+        public string DataTypeName { get; set; }
         public KotlinXamlSourceLocation Location { get; set; }
         public List<KotlinXamlEventDeclaration> Events { get; set; } = new List<KotlinXamlEventDeclaration>();
+        public List<KotlinXamlBindingDeclaration> Bindings { get; set; } = new List<KotlinXamlBindingDeclaration>();
+    }
+
+    public sealed class KotlinXamlBindingDeclaration
+    {
+        public string Name { get; set; }
+        public string DeclaringTypeName { get; set; }
+        public string TypeName { get; set; }
+        public string Mode { get; set; }
+        public bool IsAttachable { get; set; }
+        public bool IsEvent { get; set; }
+        public KotlinXamlBindingExpression Expression { get; set; }
+        public KotlinXamlBindingExpression BindBack { get; set; }
+        public string Converter { get; set; }
+        public string ConverterParameter { get; set; }
+        public string ConverterLanguage { get; set; }
+        public KotlinXamlBindingExpression FallbackValue { get; set; }
+        public KotlinXamlBindingExpression TargetNullValue { get; set; }
+        public string UpdateSourceTrigger { get; set; }
+        public KotlinXamlSourceLocation Location { get; set; }
+    }
+
+    // Syntax comes from the existing BindingPath ANTLR parser. Kotlin IR owns
+    // member resolution, including private members and non-WinRT view models.
+    public sealed class KotlinXamlBindingExpression
+    {
+        public string Kind { get; set; }
+        public string Name { get; set; }
+        public string TypeName { get; set; }
+        public string Value { get; set; }
+        public KotlinXamlBindingExpression Receiver { get; set; }
+        public List<KotlinXamlBindingExpression> Arguments { get; set; } = new List<KotlinXamlBindingExpression>();
     }
 
     public sealed class KotlinXamlEventDeclaration

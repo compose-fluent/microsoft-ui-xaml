@@ -13,7 +13,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         internal static void ValidateSymbols(IEnumerable<XamlClassCodeInfo> classes,
             KotlinXamlDeclarationIndex declarations, KotlinXamlSemanticSymbols symbols)
         {
-            if (symbols.SchemaVersion != 1 || symbols.Declarations == null || symbols.Pages == null ||
+            if (symbols.SchemaVersion != declarations.SchemaVersion || symbols.Declarations == null || symbols.Pages == null ||
                 symbols.DeclarationFingerprint == null || symbols.DeclarationFingerprint.Length != 64)
                 throw new ArgumentException("Invalid Kotlin XAML semantic symbol protocol.");
             if (!DeclarationTokens(declarations).SequenceEqual(DeclarationTokens(symbols.Declarations), StringComparer.Ordinal))
@@ -53,6 +53,9 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 foreach (var connection in page.Connections)
                 {
                     yield return connection.Id.ToString(); yield return connection.TypeName; yield return connection.FieldName;
+                    yield return connection.ElementName; yield return connection.ScopeId.ToString();
+                    yield return connection.IsScopeRoot.ToString(); yield return connection.IsTemplateChild.ToString();
+                    yield return connection.DataTypeName;
                     yield return connection.Location.Line.ToString(); yield return connection.Location.Column.ToString();
                     yield return connection.Events.Count.ToString();
                     foreach (var assignment in connection.Events)
@@ -61,8 +64,31 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                         yield return assignment.DeclaringTypeName; yield return assignment.DelegateTypeName;
                         yield return assignment.Location.Line.ToString(); yield return assignment.Location.Column.ToString();
                     }
+                    yield return connection.Bindings.Count.ToString();
+                    foreach (var binding in connection.Bindings)
+                    {
+                        yield return binding.Name; yield return binding.DeclaringTypeName; yield return binding.TypeName;
+                        yield return binding.Mode; yield return binding.IsAttachable.ToString(); yield return binding.IsEvent.ToString();
+                        foreach (var token in ExpressionTokens(binding.Expression)) yield return token;
+                        foreach (var token in ExpressionTokens(binding.BindBack)) yield return token;
+                        foreach (var token in ExpressionTokens(binding.FallbackValue)) yield return token;
+                        foreach (var token in ExpressionTokens(binding.TargetNullValue)) yield return token;
+                        yield return binding.Converter; yield return binding.ConverterParameter; yield return binding.ConverterLanguage;
+                        yield return binding.UpdateSourceTrigger;
+                        yield return binding.Location.Line.ToString(); yield return binding.Location.Column.ToString();
+                    }
                 }
             }
+        }
+        private static IEnumerable<string> ExpressionTokens(KotlinXamlBindingExpression expression)
+        {
+            yield return (expression != null).ToString();
+            if (expression == null) yield break;
+            yield return expression.Kind; yield return expression.Name; yield return expression.TypeName; yield return expression.Value;
+            foreach (var token in ExpressionTokens(expression.Receiver)) yield return token;
+            yield return expression.Arguments.Count.ToString();
+            foreach (var argument in expression.Arguments)
+                foreach (var token in ExpressionTokens(argument)) yield return token;
         }
         // This is a serialization view over the compiler DOM/harvester, not a second XAML parser.
         internal static void ValidateTree(XamlDomObject root)
@@ -72,13 +98,11 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 if (node.IsGetObject) continue;
                 if (node.Type.IsUnknown || node.Type.UnderlyingType == null)
                     throw new NotSupportedException($"Kotlin XAML ({node.StartLineNumber},{node.StartLinePosition}): unresolved type {node.Type.Name} requires an application type input.");
-                if (node.Type.Name == "DataTemplate" || node.Type.Name == "ControlTemplate")
-                    throw new NotSupportedException($"Kotlin XAML ({node.StartLineNumber},{node.StartLinePosition}): template scopes are not implemented yet.");
                 foreach (var member in node.MemberNodes)
                 {
                     if (member.Member.IsUnknown)
                         throw new NotSupportedException($"Kotlin XAML ({member.StartLineNumber},{member.StartLinePosition}): unresolved member {member.Member.Name}.");
-                    if (member.Member.IsDirective && new[] { "Load", "DeferLoadStrategy", "DataType", "Phase", "Properties", "DefaultBindMode" }.Contains(member.Member.Name))
+                    if (member.Member.IsDirective && new[] { "Load", "DeferLoadStrategy", "Phase", "Properties" }.Contains(member.Member.Name))
                         throw new NotSupportedException($"Kotlin XAML ({member.StartLineNumber},{member.StartLinePosition}): x:{member.Member.Name} is not implemented yet.");
                 }
             }
@@ -99,11 +123,20 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 };
                 foreach (var element in file.ConnectionIdElements.OrderBy(x => x.ConnectionId))
                 {
-                    if (element.HasBindAssignments || element.HasBoundEventAssignments || element.IsTemplateChild || element.CanBeInstantiatedLater)
-                        throw new NotSupportedException($"Kotlin XAML {page.ResourcePath}({element.LineNumberInfo.StartLineNumber}): binding, template and deferred loading support is not implemented yet.");
+                    if (element.CanBeInstantiatedLater)
+                        throw new NotSupportedException($"Kotlin XAML {page.ResourcePath}({element.LineNumberInfo.StartLineNumber}): deferred loading support is not implemented yet.");
                     var connection = new KotlinXamlConnectionDeclaration {
                         Id = element.ConnectionId, TypeName = element.Type?.UnderlyingType?.FullName,
-                        FieldName = element.FieldDefinition?.FieldName, Location = Location(element.LineNumberInfo)
+                        FieldName = element.FieldDefinition?.FieldName, ElementName = element.ElementName,
+                        ScopeId = element.BindUniverse.RootElement.ConnectionId, IsScopeRoot = element.IsBindingRoot,
+                        // A DataTemplate's first child is a new binding root itself.
+                        // ConnectionIdElement.IsTemplateChild only identifies universes rooted
+                        // at a FrameworkTemplate, so IsFileRoot owns the complete scope split.
+                        IsTemplateChild = !element.BindUniverse.IsFileRoot,
+                        // The file root's local CLR type is deliberately unresolved in pass 1.
+                        // Its identity is already owned by x:Class and must stay stable in pass 2.
+                        DataTypeName = element.BindUniverse.IsFileRoot ? info.ClassName.FullName : element.BindUniverse.DataRootType?.UnderlyingType?.FullName,
+                        Location = Location(element.LineNumberInfo)
                     };
                     if (String.IsNullOrEmpty(connection.TypeName))
                         throw new NotSupportedException($"Kotlin XAML: unresolved connection type in {page.ResourcePath}.");
@@ -113,14 +146,49 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                             DeclaringTypeName = assignment.DeclaringType.StandardName,
                             DelegateTypeName = assignment.EventType.StandardName, Location = Location(assignment.LineNumberInfo)
                         });
+                    foreach (var assignment in element.BindAssignments.OrderBy(x => x.MemberName, StringComparer.Ordinal))
+                        connection.Bindings.Add(Binding(assignment));
+                    foreach (var assignment in element.BoundEventAssignments.OrderBy(x => x.MemberName, StringComparer.Ordinal))
+                        connection.Bindings.Add(new KotlinXamlBindingDeclaration {
+                            Name = assignment.MemberName, DeclaringTypeName = assignment.MemberDeclaringType.UnderlyingType.FullName,
+                            TypeName = assignment.MemberType.UnderlyingType.FullName, Mode = "OneTime", IsEvent = true,
+                            Expression = KotlinBindingExpressionWriter.Parse(assignment.BindingPath, assignment), Location = Location(assignment.LineNumberInfo)
+                        });
+                    connection.Bindings = connection.Bindings.OrderBy(x => x.Name, StringComparer.Ordinal).ToList();
                     page.Connections.Add(connection);
                 }
                 if (page.Connections.Any(x => x.FieldName != null)) page.Features.Add("named-elements");
                 if (page.Connections.Any(x => x.Events.Count != 0)) page.Features.Add("events");
+                if (page.Connections.Any(x => x.Bindings.Count != 0)) page.Features.Add("compiled-bindings");
+                if (page.Connections.Any(x => x.IsTemplateChild)) page.Features.Add("templates");
                 page.Features.Sort(StringComparer.Ordinal);
                 result.Pages.Add(page);
             }
             return result;
+        }
+
+        private static KotlinXamlBindingDeclaration Binding(BindAssignment assignment) => new KotlinXamlBindingDeclaration {
+            Name = assignment.MemberName, DeclaringTypeName = assignment.MemberDeclaringType.UnderlyingType.FullName,
+            TypeName = assignment.MemberType.UnderlyingType.FullName,
+            Mode = assignment.IsTrackingTarget ? "TwoWay" : assignment.IsTrackingSource ? "OneWay" : "OneTime",
+            IsAttachable = assignment.IsAttachable,
+            Expression = KotlinBindingExpressionWriter.Parse(assignment.BindingPath, assignment),
+            BindBack = assignment.BindBackPath == null ? null : KotlinBindingExpressionWriter.Parse(assignment.BindBackPath, assignment),
+            Converter = assignment.Converter, ConverterParameter = assignment.ConverterParameter, ConverterLanguage = assignment.ConverterLanguage,
+            FallbackValue = LiteralOption(assignment, "FallbackValue"), TargetNullValue = LiteralOption(assignment, "TargetNullValue"),
+            UpdateSourceTrigger = assignment.UpdateSourceTrigger.ToString(), Location = Location(assignment.LineNumberInfo)
+        };
+
+        private static KotlinXamlBindingExpression LiteralOption(BindAssignment assignment, string name)
+        {
+            var member = assignment.BindingNode.GetMemberNode(name);
+            if (member == null) return null;
+            var item = member.Item as XamlDomObject;
+            if (item != null && item.Type.Name == "NullExtension")
+                return new KotlinXamlBindingExpression { Kind = "literal", TypeName = "null" };
+            var value = DomHelper.GetStringValueOfProperty(member);
+            if (value == null) throw new ArgumentException($"Kotlin x:Bind ({assignment.LineNumber},{assignment.ColumnNumber}): {name} requires a literal.");
+            return new KotlinXamlBindingExpression { Kind = "literal", TypeName = assignment.MemberType.UnderlyingType.FullName, Value = value };
         }
 
         private static KotlinXamlSourceLocation Location(LineNumberInfo location) =>
