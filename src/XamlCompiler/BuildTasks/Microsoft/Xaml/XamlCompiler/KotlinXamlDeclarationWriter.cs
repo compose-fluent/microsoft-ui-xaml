@@ -30,10 +30,32 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                     var invoke = assignment.EventType.UnderlyingType.GetMethod("Invoke");
                     if (handlers.Count != 1 || invoke == null || handlers[0].ReturnTypeName != invoke.ReturnType.FullName ||
                         handlers[0].ParameterTypeNames == null ||
-                        !handlers[0].ParameterTypeNames.SequenceEqual(invoke.GetParameters().Select(x => x.ParameterType.FullName)))
+                        !HandlerParametersMatch(handlers[0].ParameterTypeNames, invoke.GetParameters().Select(x => x.ParameterType).ToList()))
                         throw new ArgumentException($"Kotlin XAML {info.ClassName.FullName}({assignment.LineNumberInfo.StartLineNumber},{assignment.LineNumberInfo.StartLinePosition}): handler {assignment.HandlerName} does not match {assignment.EventType.StandardName}.");
                 }
             }
+        }
+
+        // C# method-group conversion permits a handler to accept a base class or
+        // implemented interface of the event parameter. Gallery uses this for
+        // TextChanged handlers accepting RoutedEventArgs. Kotlin's generated
+        // delegate bridge has the same reference conversion; value types still
+        // require an exact match, as in the C# backend.
+        private static bool HandlerParametersMatch(IReadOnlyList<string> handlerTypes, IReadOnlyList<Type> eventTypes)
+        {
+            if (handlerTypes.Count != eventTypes.Count) return false;
+            for (int i = 0; i < handlerTypes.Count; i++)
+            {
+                Type eventType = eventTypes[i];
+                string handlerType = handlerTypes[i];
+                if (eventType.FullName == handlerType) continue;
+                if (eventType.IsValueType) return false;
+                bool matches = eventType.GetInterfaces().Any(x => x.FullName == handlerType);
+                for (Type current = eventType.BaseType; !matches && current != null; current = current.BaseType)
+                    matches = current.FullName == handlerType;
+                if (!matches) return false;
+            }
+            return true;
         }
 
         // Shared compiler builds do not depend on the executable's JSON serializer.
@@ -139,9 +161,13 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                         // ConnectionIdElement.IsTemplateChild only identifies universes rooted
                         // at a FrameworkTemplate, so IsFileRoot owns the complete scope split.
                         IsTemplateChild = !element.BindUniverse.IsFileRoot,
-                        // The file root's local CLR type is deliberately unresolved in pass 1.
-                        // Its identity is already owned by x:Class and must stay stable in pass 2.
-                        DataTypeName = element.BindUniverse.IsFileRoot ? info.ClassName.FullName : element.BindUniverse.DataRootType?.UnderlyingType?.FullName,
+                        // The local CLR type is deliberately unresolved in pass 1. Besides
+                        // the file root, ItemsPanelTemplate scopes retain ClassXamlType as
+                        // their data root (XamlHarvester.enterScope). Preserve that identity
+                        // through pass 2, without replacing explicit template data types.
+                        DataTypeName = element.BindUniverse.IsFileRoot ||
+                            ReferenceEquals(element.BindUniverse.DataRootType, info.ClassXamlType)
+                            ? info.ClassName.FullName : element.BindUniverse.DataRootType?.UnderlyingType?.FullName,
                         Phase = element.PhaseAssignment?.Phase ?? 0,
                         CanBeInstantiatedLater = element.CanBeInstantiatedLater, IsUnloadableRoot = element.IsUnloadableRoot,
                         Children = element.AllChildren.Select(x => x.ConnectionId).Distinct().OrderBy(x => x).ToList(),
