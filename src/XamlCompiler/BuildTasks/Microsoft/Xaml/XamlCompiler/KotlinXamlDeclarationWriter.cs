@@ -100,7 +100,10 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                     throw new NotSupportedException($"Kotlin XAML ({node.StartLineNumber},{node.StartLinePosition}): unresolved type {node.Type.Name} requires an application type input.");
                 foreach (var member in node.MemberNodes)
                 {
-                    if (member.Member.IsUnknown)
+                    // Compiler-only directives are intentionally unknown to the runtime
+                    // schema. Their values are validated by XamlDomValidator and harvested
+                    // into the binding universe before the Kotlin declaration export.
+                    if (member.Member.IsUnknown && !DomHelper.IsDataTypeMember(member) && !DomHelper.IsDefaultBindModeMember(member))
                         throw new NotSupportedException($"Kotlin XAML ({member.StartLineNumber},{member.StartLinePosition}): unresolved member {member.Member.Name}.");
                     if (member.Member.IsDirective && new[] { "Load", "DeferLoadStrategy", "Phase", "Properties" }.Contains(member.Member.Name))
                         throw new NotSupportedException($"Kotlin XAML ({member.StartLineNumber},{member.StartLinePosition}): x:{member.Member.Name} is not implemented yet.");
