@@ -86,7 +86,7 @@ jobs:
           $assets = @(Get-ChildItem BuildOutput/kotlin-release -File | Where-Object { $_.Name -match '\.(zip|sha256)$' } | ForEach-Object FullName)
           $releaseOptions = @()
           if (($env:GITHUB_REF_NAME -replace '^kotlin-xamlc-v', '') -match '-') { $releaseOptions += '--prerelease' }
-          gh release create $env:GITHUB_REF_NAME @assets @releaseOptions --verify-tag --title $env:GITHUB_REF_NAME --notes 'Kotlin XamlCompiler protocol v1. GenXbf is supplied by the selected Windows App SDK NuGet package.'
+          gh release create $env:GITHUB_REF_NAME @assets @releaseOptions --verify-tag --title $env:GITHUB_REF_NAME --notes 'Kotlin XamlCompiler protocol v2: typed compiled bindings, template scopes, x:Phase and deferred elements. GenXbf is supplied by the selected Windows App SDK NuGet package.'
           if ($LASTEXITCODE) { throw 'Release upload failed' }
     permissions:
       contents: write
