@@ -56,7 +56,12 @@ jobs:
           if ($LASTEXITCODE) { throw 'Executable build failed' }
           msbuild src/XamlCompiler/Microsoft.UI.Xaml.Markup.Compiler.csproj @common
           if ($LASTEXITCODE) { throw 'Shared compiler build failed' }
-      - name: Kotlin protocol and existing CSharp / CppWinRT regression
+      - name: Package versioned compiler
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME -replace '^kotlin-xamlc-v', '' } else { "0.1.0-ci.$env:GITHUB_RUN_NUMBER" }
+          ./src/XamlCompiler/Tools/Package-KotlinXamlCompiler.ps1 -CompilerDirectory BuildOutput/obj/amd64fre/src/XamlCompiler/Exe/Microsoft.UI.Xaml.Markup.Compiler.Executable -Version $version -OutputDirectory BuildOutput/kotlin-release
+      - name: Run packaged Kotlin compiler and existing CSharp / CppWinRT regression
         shell: pwsh
         run: |
           $refs = @(
@@ -65,12 +70,44 @@ jobs:
             "$pwd/BuildOutput/ci-packages/Microsoft.WindowsAppSDK.Foundation.2.3.12/metadata",
             "$pwd/BuildOutput/ci-packages/Microsoft.WindowsAppSDK.InteractiveExperiences.2.1.9/metadata/10.0.18362.0"
           )
-          ./src/XamlCompiler/Tests/Kotlin/Test-DeclarationIndex.ps1 -Compiler BuildOutput/obj/amd64fre/src/XamlCompiler/Exe/Microsoft.UI.Xaml.Markup.Compiler.Executable/XamlCompiler.exe -ReferenceDirectories $refs -OutputDirectory BuildOutput/kotlin-tests
-      - name: Package versioned compiler
-        shell: pwsh
-        run: |
-          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME -replace '^kotlin-xamlc-v', '' } else { "0.1.0-ci.$env:GITHUB_RUN_NUMBER" }
-          ./src/XamlCompiler/Tools/Package-KotlinXamlCompiler.ps1 -CompilerDirectory BuildOutput/obj/amd64fre/src/XamlCompiler/Exe/Microsoft.UI.Xaml.Markup.Compiler.Executable -Version $version -OutputDirectory BuildOutput/kotlin-release
+          $repo = $pwd.Path
+          $unpacked = Join-Path $repo 'BuildOutput/kotlin-release-check'
+          $archive = @(Get-ChildItem BuildOutput/kotlin-release -Filter '*.zip')
+          if ($archive.Count -ne 1) { throw 'Expected one compiler archive' }
+          Expand-Archive -LiteralPath $archive[0].FullName -DestinationPath $unpacked
+          $manifest = Get-Content -LiteralPath "$unpacked/kotlin-xamlc.json" -Raw | ConvertFrom-Json
+          if ($manifest.runtime.kind -ne 'net-framework' -or $manifest.runtime.minimumVersion -ne '4.7.2') { throw 'Missing compiler runtime prerequisite' }
+          foreach ($file in $manifest.files.psobject.Properties) {
+            if ((Get-FileHash -LiteralPath (Join-Path $unpacked $file.Name) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $file.Value) { throw "Invalid packaged file: $($file.Name)" }
+          }
+          Push-Location $unpacked
+          try {
+            & "$repo/src/XamlCompiler/Tests/Kotlin/Test-DeclarationIndex.ps1" -Compiler "$unpacked/XamlCompiler.exe" -ReferenceDirectories $refs -OutputDirectory "$repo/BuildOutput/kotlin-tests"
+            $resourceRoot = Join-Path $repo 'BuildOutput/kotlin-package-xbf'
+            New-Item -ItemType Directory -Path $resourceRoot -Force | Out-Null
+            $xaml = Join-Path $resourceRoot 'Resources.xaml'
+            '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"><SolidColorBrush x:Key="AccentBrush" Color="CornflowerBlue" /></ResourceDictionary>' | Set-Content -LiteralPath $xaml -Encoding utf8NoBOM
+            $references = @($refs | ForEach-Object { Get-ChildItem -LiteralPath $_ -Filter '*.winmd' } | ForEach-Object { @{ ItemSpec = $_.FullName; FullPath = $_.FullName; IsSystemReference = $true } })
+            $input = @{
+              ProjectPath = "$resourceRoot/probe.proj"; ProjectName = 'probe'; RootNamespace = 'probe'; OutputType = 'WinExe'
+              Language = 'Kotlin'; LanguageSourceExtension = '.kt'; IsPass1 = $true
+              OutputPath = "$resourceRoot/compiled"; SavedStateFile = "$resourceRoot/state.xml"; TargetPlatformMinVersion = '10.0.19041.0'
+              ReferenceAssemblies = $references; ReferenceAssemblyPaths = @($refs | ForEach-Object { @{ ItemSpec = $_; FullPath = $_ } })
+              GenXbfPath = "$repo/BuildOutput/ci-packages/Microsoft.WindowsAppSDK.WinUI.2.3.9/tools"
+              XamlPages = @(@{ ItemSpec = $xaml; FullPath = $xaml }); DisableXbfGeneration = $false
+            }
+            $input | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath "$resourceRoot/input.json" -Encoding utf8NoBOM
+            & ./XamlCompiler.exe "$resourceRoot/input.json" "$resourceRoot/declarations.json"
+            if ($LASTEXITCODE) { throw 'Packaged Kotlin declaration compilation failed' }
+            $declarations = (Get-Content -LiteralPath "$resourceRoot/declarations.json" -Raw | ConvertFrom-Json).KotlinDeclarations
+            $input.IsPass1 = $false
+            $input.KotlinSymbols = @{ SchemaVersion = 2; DeclarationFingerprint = ('a' * 64); Declarations = $declarations; Pages = @() }
+            $input | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath "$resourceRoot/input.json" -Encoding utf8NoBOM
+            & ./XamlCompiler.exe "$resourceRoot/input.json" "$resourceRoot/output.json"
+            if ($LASTEXITCODE) { throw 'Packaged Kotlin XBF compilation failed' }
+            $result = Get-Content -LiteralPath "$resourceRoot/output.json" -Raw | ConvertFrom-Json
+            if (!$result.GeneratedXbfFiles.Count -or !(Get-ChildItem "$resourceRoot/compiled" -Recurse -Filter '*.xbf')) { throw 'Packaged Kotlin compiler produced no XBF' }
+          } finally { Pop-Location }
       - uses: actions/upload-artifact@v4
         with:
           name: kotlin-xamlc-win-x64

@@ -29,7 +29,17 @@ $manifest = [ordered]@{
     version = $Version
     host = 'win-x64'
     sourceRevision = $revision
+    upstreamRepository = 'https://github.com/microsoft/microsoft-ui-xaml'
+    upstreamRevision = '1fdf51480ab1e5fe92b63d2e1c0b8d56c367049e'
     executable = 'XamlCompiler.exe'
+    execution = @{ kind = 'executable'; arguments = @('input.json', 'output.json') }
+    runtime = @{ kind = 'net-framework'; minimumVersion = '4.7.2'; minimumRelease = 461808 }
+    compatibility = @{
+        windowsAppSdk = @('2.5.1')
+        winuiPackage = 'Microsoft.WindowsAppSDK.WinUI'
+        winuiVersions = @('2.3.9')
+        genXbfHost = 'win-x64'
+    }
     genXbf = 'Provided by the selected Microsoft.WindowsAppSDK.WinUI NuGet package'
     files = $files
 }

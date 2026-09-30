@@ -12,13 +12,19 @@ version, and an output directory. It produces:
 - `kotlin-xamlc-<version>-win-x64.zip`
 - The archive's `.sha256` file.
 - Inside the archive, `kotlin-xamlc.json` identifies package schema 1, Kotlin
-  protocol 1, host `win-x64`, source revision, entry point, and every payload file's
+  protocol 2, host `win-x64`, source and upstream revisions, entry point, and every payload file's
   SHA-256. The Kotlin plugin pins the archive digest as well as checking this manifest.
 
 The host needs .NET Framework 4.7.2 or later. GenXbf is obtained from the
 application's resolved Windows App SDK WinUI NuGet package; it is not redistributed
 in this compiler package. GenXbf's architecture must match the compiler process,
 not the architecture of the application being compiled.
+
+The manifest records executable invocation, the .NET Framework prerequisite,
+and the verified Windows App SDK 2.5.1 / WinUI package 2.3.9 combination. CI
+unpacks the archive into an isolated directory, runs the existing regression
+suite using that entry point, and compiles a resource dictionary to actual XBF
+before uploading or publishing the package.
 
 When updating the Kotlin plugin's release pin, copy the version and archive digest
 from the completed CI release, then validate Gallery without a local compiler
