@@ -2649,6 +2649,15 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                             // Put it all together
                             string modifiedDefaultValueMarkup = injectedOpeningTag + restOfDefaultValue;
 
+                            if (IsKotlin)
+                            {
+                                // The Kotlin protocol carries data, not a C#/VB
+                                // quoted source expression. Its backend mirrors
+                                // InitializeXProperties' XamlReader.Load call.
+                                storedProp.DefaultValueMarkup = modifiedDefaultValueMarkup;
+                                break;
+                            }
+
                             // Convert the markup string into a literal (e.g. if there's a quote in the current markup string, the literalized string will have a
                             // backslash to escape it so the compiler won't complain after spitting it out in codegen).
                             using (var writer = new StringWriter())

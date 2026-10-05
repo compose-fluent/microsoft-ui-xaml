@@ -104,7 +104,7 @@ jobs:
             }
             $declarations = (Get-Content -LiteralPath "$resourceRoot/declarations.json" -Raw | ConvertFrom-Json).KotlinDeclarations
             $input.IsPass1 = $false
-            $input.KotlinSymbols = @{ SchemaVersion = 2; DeclarationFingerprint = ('a' * 64); Declarations = $declarations; Pages = @() }
+            $input.KotlinSymbols = @{ SchemaVersion = $declarations.SchemaVersion; DeclarationFingerprint = ('a' * 64); Declarations = $declarations; Pages = @() }
             $input | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath "$resourceRoot/input.json" -Encoding utf8NoBOM
             & ./XamlCompiler.exe "$resourceRoot/input.json" "$resourceRoot/output.json"
             if ($LASTEXITCODE) {
@@ -129,7 +129,7 @@ jobs:
           $assets = @(Get-ChildItem BuildOutput/kotlin-release -File | Where-Object { $_.Name -match '\.(zip|sha256)$' } | ForEach-Object FullName)
           $releaseOptions = @()
           if (($env:GITHUB_REF_NAME -replace '^kotlin-xamlc-v', '') -match '-') { $releaseOptions += '--prerelease' }
-          gh release create $env:GITHUB_REF_NAME @assets @releaseOptions --verify-tag --title $env:GITHUB_REF_NAME --notes 'Kotlin XamlCompiler protocol v2: typed compiled bindings, template scopes, x:Phase and deferred elements. GenXbf is supplied by the selected Windows App SDK NuGet package.'
+          gh release create $env:GITHUB_REF_NAME @assets @releaseOptions --verify-tag --title $env:GITHUB_REF_NAME --notes 'Kotlin XamlCompiler protocol v3: x:Properties, typed compiled bindings, template scopes, x:Phase and deferred elements. GenXbf is supplied by the selected Windows App SDK NuGet package.'
           if ($LASTEXITCODE) { throw 'Release upload failed' }
     permissions:
       contents: write

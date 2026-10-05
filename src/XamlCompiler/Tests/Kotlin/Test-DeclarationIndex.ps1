@@ -49,7 +49,7 @@ function Assert([bool] $condition, [string] $message) {
     if (!$condition) { throw $message }
 }
 $first = (Compile 'first').KotlinDeclarations
-Assert ($first.SchemaVersion -eq 2) 'Missing protocol version.'
+Assert ($first.SchemaVersion -eq 3) 'Missing protocol version.'
 Assert ($first.Pages.Count -eq 1) 'Expected exactly one page.'
 $page = $first.Pages[0]
 Assert ($page.ClassName -eq 'probe.MainPage') 'Incorrect x:Class.'
@@ -63,7 +63,7 @@ $second = (Compile 'second').KotlinDeclarations
 Assert (($first | ConvertTo-Json -Depth 12 -Compress) -ceq ($second | ConvertTo-Json -Depth 12 -Compress)) 'Non-deterministic index.'
 
 $inputs.KotlinSymbols = @{
-    SchemaVersion = 2; DeclarationFingerprint = ('a' * 64); Declarations = $first
+    SchemaVersion = $first.SchemaVersion; DeclarationFingerprint = ('a' * 64); Declarations = $first
     Pages = @(@{ ClassName = 'probe.MainPage'; Handlers = @(@{
         Name = 'onClick'; ReturnTypeName = 'System.Void'
         ParameterTypeNames = @('System.Object', 'Microsoft.UI.Xaml.RoutedEventArgs')
@@ -89,11 +89,40 @@ $bound = (Compile 'compiled-binding').KotlinDeclarations
 $binding = @($bound.Pages[0].Connections | Where-Object FieldName -EQ 'myButton')[0].Bindings[0]
 Assert ($binding.Name -eq 'Content' -and $binding.Expression.Name -eq 'Value' -and $binding.Mode -eq 'OneTime') 'Compiled binding expression was not exported.'
 
+$propertyXaml = $xaml.Replace('  <Button', @'
+  <x:Properties>
+    <x:Property Name="Title" Type="x:String" DefaultValue="escaped &quot;text&quot;" />
+    <x:Property Name="Count" Type="x:Int32" IsReadOnly="True" DefaultValue="2" />
+    <x:Property Name="ContentValue" Type="Button" ChangedHandler="ContentValueUpdated">
+      <x:Property.DefaultValue><Button Content="Default" /></x:Property.DefaultValue>
+    </x:Property>
+  </x:Properties>
+  <Button
+'@)
+[IO.File]::WriteAllText($pagePath, $propertyXaml)
+$propertyIndex = (Compile 'properties').KotlinDeclarations
+$properties = $propertyIndex.Pages[0].Properties
+Assert ($properties.Count -eq 3 -and 'properties' -in $propertyIndex.Pages[0].Features) 'Missing x:Properties declarations.'
+$title = @($properties | Where-Object Name -EQ 'Title')[0]
+Assert ($title.DefaultValue -ceq 'escaped "text"' -and $title.ChangedHandler -eq 'TitleChanged' -and !$title.IsValueType) 'Incorrect string property.'
+$count = @($properties | Where-Object Name -EQ 'Count')[0]
+Assert ($count.DefaultValue -ceq '2' -and $count.IsReadOnly -and $count.IsValueType -and $null -eq $count.ChangedHandler) 'Incorrect read-only value property.'
+$content = @($properties | Where-Object Name -EQ 'ContentValue')[0]
+Assert ($content.ChangedHandler -eq 'ContentValueUpdated' -and $content.DefaultValueMarkup -match '<Button' -and
+    $content.DefaultValueMarkup -match 'xmlns=') 'Missing complex-default fragment or namespace.'
+$inputs.KotlinSymbols = @{ SchemaVersion = $propertyIndex.SchemaVersion; DeclarationFingerprint = ('c' * 64); Declarations = $propertyIndex
+    Pages = @(@{ ClassName = 'probe.MainPage'; Handlers = @(@{ Name = 'onClick'; ReturnTypeName = 'System.Void'
+        ParameterTypeNames = @('System.Object', 'Microsoft.UI.Xaml.RoutedEventArgs') }) }) }
+$null = Compile 'properties-symbols'
+[IO.File]::WriteAllText($pagePath, $propertyXaml.Replace('DefaultValue="2"', 'DefaultValue="3"'))
+$changedDefault = Compile 'properties-stale-default' 1
+Assert (($changedDefault.MSBuildLogEntries | Where-Object Type -EQ 2).Message -match 'changed after semantic') 'Changed default accepted stale symbols.'
+$inputs.Remove('KotlinSymbols')
 $inputs.XamlPages = @()
 $empty = (Compile 'deleted').KotlinDeclarations
 Assert ($empty.Pages.Count -eq 0 -and $empty.Resources.Count -eq 0) 'Deleted input retained stale declarations.'
 $inputs.IsPass1 = $false
-$inputs.KotlinSymbols = @{ SchemaVersion = 2; DeclarationFingerprint = ('b' * 64); Declarations = $empty; Pages = @() }
+$inputs.KotlinSymbols = @{ SchemaVersion = $empty.SchemaVersion; DeclarationFingerprint = ('b' * 64); Declarations = $empty; Pages = @() }
 $emptyFinal = Compile 'deleted-final'
 Assert ($emptyFinal.KotlinImplementation.Declarations.Pages.Count -eq 0) 'Empty final compilation retained stale pages.'
 Assert ($emptyFinal.GeneratedXbfFiles.Count -eq 0) 'Empty final compilation retained stale XBF outputs.'

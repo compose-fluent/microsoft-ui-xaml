@@ -6,7 +6,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
 {
     public sealed class KotlinXamlImplementationPlan
     {
-        public int SchemaVersion { get; set; } = 2;
+        public int SchemaVersion { get; set; } = 3;
         public string DeclarationFingerprint { get; set; }
         public KotlinXamlDeclarationIndex Declarations { get; set; }
     }
@@ -34,7 +34,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
     // Language-neutral WinRT names are intentional. Kotlin projection mapping belongs to kotlin-winrt.
     public sealed class KotlinXamlDeclarationIndex
     {
-        public int SchemaVersion { get; set; } = 2;
+        public int SchemaVersion { get; set; } = 3;
         public List<KotlinXamlPageDeclaration> Pages { get; set; } = new List<KotlinXamlPageDeclaration>();
         public List<string> Resources { get; set; } = new List<string>();
     }
@@ -47,6 +47,20 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
         public bool IsApplication { get; set; }
         public List<string> Features { get; set; } = new List<string>();
         public List<KotlinXamlConnectionDeclaration> Connections { get; set; } = new List<KotlinXamlConnectionDeclaration>();
+        public List<KotlinXamlPropertyDeclaration> Properties { get; set; } = new List<KotlinXamlPropertyDeclaration>();
+    }
+
+    // CSharpPagePass1/Pass2's x:Property contract, collected by ProcessXProperty.
+    public sealed class KotlinXamlPropertyDeclaration
+    {
+        public string Name { get; set; }
+        public string TypeName { get; set; }
+        public bool IsReadOnly { get; set; }
+        public bool IsValueType { get; set; }
+        public string ChangedHandler { get; set; }
+        public string DefaultValue { get; set; }
+        public string DefaultValueMarkup { get; set; }
+        public KotlinXamlSourceLocation Location { get; set; }
     }
 
     public sealed class KotlinXamlConnectionDeclaration

@@ -71,6 +71,14 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                 yield return page.ClassName; yield return page.ResourcePath; yield return page.BaseTypeName;
                 yield return page.IsApplication.ToString(); yield return page.Features.Count.ToString();
                 foreach (var feature in page.Features) yield return feature;
+                yield return page.Properties.Count.ToString();
+                foreach (var property in page.Properties)
+                {
+                    yield return property.Name; yield return property.TypeName;
+                    yield return property.IsReadOnly.ToString(); yield return property.IsValueType.ToString();
+                    yield return property.ChangedHandler; yield return property.DefaultValue; yield return property.DefaultValueMarkup;
+                    yield return property.Location.Line.ToString(); yield return property.Location.Column.ToString();
+                }
                 yield return page.Connections.Count.ToString();
                 foreach (var connection in page.Connections)
                 {
@@ -132,8 +140,6 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                     if (member.Member.IsUnknown && !DomHelper.IsDataTypeMember(member) && !DomHelper.IsDefaultBindModeMember(member) &&
                         !DomHelper.IsPhaseMember(member) && !DomHelper.IsLoadMember(member) && !DomHelper.IsDeferLoadStrategyMember(member))
                         throw new NotSupportedException($"Kotlin XAML ({member.StartLineNumber},{member.StartLinePosition}): unresolved member {member.Member.Name}.");
-                    if (member.Member.IsDirective && member.Member.Name == "Properties")
-                        throw new NotSupportedException($"Kotlin XAML ({member.StartLineNumber},{member.StartLinePosition}): x:{member.Member.Name} is not implemented yet.");
                 }
             }
         }
@@ -151,6 +157,20 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
                     ClassName = info.ClassName.FullName, ResourcePath = ResourcePath(file.ApparentRelativePath),
                     BaseTypeName = info.BaseTypeName, IsApplication = info.IsApplication
                 };
+                foreach (var property in file.XPropertyInfo?.xProperties?.OrderBy(x => x.Name, StringComparer.Ordinal)
+                    ?? Enumerable.Empty<xProperty>())
+                {
+                    page.Properties.Add(new KotlinXamlPropertyDeclaration {
+                        Name = property.Name, TypeName = property.FullTypeName,
+                        IsReadOnly = property.IsReadOnly, IsValueType = property.PropertyType?.UnderlyingType?.IsValueType ?? false,
+                        ChangedHandler = property.IsReadOnly ? null : property.ChangedHandler,
+                        DefaultValue = property.DefaultValueString, DefaultValueMarkup = property.DefaultValueMarkup,
+                        Location = new KotlinXamlSourceLocation {
+                            Line = property.OriginalXProperty.StartLineNumber, Column = property.OriginalXProperty.StartLinePosition
+                        }
+                    });
+                }
+                if (page.Properties.Count != 0) page.Features.Add("properties");
                 foreach (var element in file.ConnectionIdElements.OrderBy(x => x.ConnectionId))
                 {
                     var connection = new KotlinXamlConnectionDeclaration {
