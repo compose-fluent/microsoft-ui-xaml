@@ -137,6 +137,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.XBF
             }
         }
 
+#if !KOTLIN_UWP_XAML
         public IXbfType BoxedType
         {
             get
@@ -144,6 +145,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.XBF
                 return null;
             }
         }
+#endif
 
         public Type UnderlyingType
         {

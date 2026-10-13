@@ -15,3 +15,9 @@ The Kotlin consumer fixture was generated with Windows App SDK 2.5.1's WinUI 2.3
 The same compiler sources build either framework: pass `/p:KotlinXamlFramework=winui` (the default) or `/p:KotlinXamlFramework=uwp` to MSBuild, using separate output directories. Set input JSON `XamlFramework` to the matching lower-case value; an omitted field uses the compiler artifact's framework, preserving the existing WinUI contract. Declaration snapshots include `Framework`, and semantic validation rejects a snapshot from the other framework. UWP resolves `Windows.UI.Xaml` from the selected Windows SDK contracts; WinUI resolves `Microsoft.UI.Xaml` from its Windows App SDK package. Individual SDK contract WinMD references must remain ordinary references rather than `IsSystemReference` facade references, so they are available during Pass 1.
 
 For UWP, `GenXbfPath` is the selected SDK's `bin/<version>/XamlCompiler` directory (or `bin/<version>` for older layouts); the compiler appends the host architecture. For WinUI it is the package's `tools` directory. CI discovers installed SDK roots and runs both framework builds, declaration tests and actual XBF compilation. `Package-KotlinXamlCompiler.ps1 -Framework uwp -WindowsSdkVersions <tested-version>` creates an `-uwp-win-x64` archive with its SDK compatibility recorded in `kotlin-xamlc.json`; the WinUI archive name remains unchanged. The consumer chooses one compiler package and supplies the matching reference and GenXbf paths.
+
+When UWP tests receive `GenXbfDirectory`, they also compare the private XBF COM
+interface GUIDs and vtable slots against that SDK's build-tasks assembly. These
+interfaces differ from WinUI's compiler ABI: UWP `IXbfType` has no `BoxedType` slot.
+Testing only built-in system controls misses this contract because GenXbf can
+resolve those controls internally; external controls exercise the metadata provider.

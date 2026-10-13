@@ -8,6 +8,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $xamlNamespace = if ($Framework -eq 'uwp') { 'Windows.UI.Xaml' } else { 'Microsoft.UI.Xaml' }
 $Compiler = (Resolve-Path -LiteralPath $Compiler).Path
+if ($Framework -eq 'uwp' -and $GenXbfDirectory) {
+    & "$PSScriptRoot/Test-UwpXbfAbi.ps1" -Compiler $Compiler -SdkCompilerAssembly (
+        Join-Path $GenXbfDirectory 'Microsoft.Windows.UI.Xaml.Build.Tasks.dll')
+}
 $root = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force $root | Out-Null
 $references = @($ReferenceDirectories | ForEach-Object {
