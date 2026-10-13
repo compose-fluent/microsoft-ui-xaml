@@ -63,6 +63,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         private static IEnumerable<string> DeclarationTokens(KotlinXamlDeclarationIndex index)
         {
             yield return index.SchemaVersion.ToString();
+            yield return index.Framework ?? "winui";
             yield return index.Resources.Count.ToString();
             foreach (var resource in index.Resources) yield return resource;
             yield return index.Pages.Count.ToString();
@@ -146,7 +147,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
 
         internal static KotlinXamlDeclarationIndex Create(IEnumerable<XamlClassCodeInfo> classes, IEnumerable<string> resources)
         {
-            var result = new KotlinXamlDeclarationIndex();
+            var result = new KotlinXamlDeclarationIndex { Framework = KnownNamespaces.XamlFramework };
             result.Resources = resources.Select(ResourcePath).OrderBy(x => x, StringComparer.Ordinal).ToList();
             foreach (var info in classes.OrderBy(x => x.ClassName.FullName, StringComparer.Ordinal))
             {

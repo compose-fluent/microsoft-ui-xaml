@@ -15,6 +15,10 @@ permissions:
 jobs:
   compiler:
     runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [winui, uwp]
     steps:
       - uses: actions/checkout@v4
       - uses: microsoft/setup-msbuild@v2
@@ -24,6 +28,24 @@ jobs:
       - uses: NuGet/setup-nuget@v2
         with:
           nuget-version: '6.14.0'
+      - name: Locate installed UWP SDK compiler and contracts
+        if: matrix.framework == 'uwp'
+        id: sdk
+        shell: pwsh
+        run: |
+          $kitRoot = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots').KitsRoot10
+          $sdk = Get-ChildItem -LiteralPath (Join-Path $kitRoot 'References') -Directory |
+            Where-Object {
+              (Test-Path -LiteralPath (Join-Path $kitRoot "bin/$($_.Name)/XamlCompiler/x64/GenXbf.dll")) -or
+              (Test-Path -LiteralPath (Join-Path $kitRoot "bin/$($_.Name)/x64/GenXbf.dll"))
+            } |
+            Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+          if (!$sdk) { throw 'No installed Windows SDK has both reference contracts and the x64 UWP GenXbf compiler.' }
+          $genXbf = Join-Path $kitRoot "bin/$($sdk.Name)/XamlCompiler"
+          if (!(Test-Path -LiteralPath (Join-Path $genXbf 'x64/GenXbf.dll'))) { $genXbf = Join-Path $kitRoot "bin/$($sdk.Name)" }
+          "version=$($sdk.Name)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "KOTLIN_UWP_SDK_REFERENCES=$($sdk.FullName)" | Add-Content -LiteralPath $env:GITHUB_ENV
+          "KOTLIN_UWP_GENXBF=$genXbf" | Add-Content -LiteralPath $env:GITHUB_ENV
       - name: Restore build and test dependencies
         shell: pwsh
         run: |
@@ -51,7 +73,7 @@ jobs:
             $config.sdk = @{ version = $sdk; rollForward = 'disable'; allowPrerelease = $false }
             $config | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $configPath -Encoding utf8NoBOM
           }
-          $common = @('/restore', '/p:Configuration=Release', '/p:Platform=x64', '/p:IsInternalWinUIBuild=false', "/p:NugetPackageDirectory=$env:USERPROFILE\.nuget\packages", "/p:RestorePackagesPath=$env:USERPROFILE\.nuget\packages", '/p:RestoreSources=https://api.nuget.org/v3/index.json', "/p:MSBuildCachePackageRoot=$pwd\packages\Microsoft.MSBuildCache.Local.0.1.268-preview", '/verbosity:minimal', '/nologo')
+          $common = @('/restore', '/p:Configuration=Release', '/p:Platform=x64', '/p:IsInternalWinUIBuild=false', '/p:KotlinXamlFramework=${{ matrix.framework }}', "/p:NugetPackageDirectory=$env:USERPROFILE\.nuget\packages", "/p:RestorePackagesPath=$env:USERPROFILE\.nuget\packages", '/p:RestoreSources=https://api.nuget.org/v3/index.json', "/p:MSBuildCachePackageRoot=$pwd\packages\Microsoft.MSBuildCache.Local.0.1.268-preview", '/verbosity:minimal', '/nologo')
           msbuild src/XamlCompiler/Exe/Microsoft.UI.Xaml.Markup.Compiler.Executable.csproj /p:PlatformTarget=x64 /p:Prefer32Bit=false @common
           if ($LASTEXITCODE) { throw 'Executable build failed' }
           msbuild src/XamlCompiler/Microsoft.UI.Xaml.Markup.Compiler.csproj @common
@@ -60,7 +82,9 @@ jobs:
         shell: pwsh
         run: |
           $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME -replace '^kotlin-xamlc-v', '' } else { "0.1.0-ci.$env:GITHUB_RUN_NUMBER" }
-          ./src/XamlCompiler/Tools/Package-KotlinXamlCompiler.ps1 -CompilerDirectory BuildOutput/obj/amd64fre/src/XamlCompiler/Exe/Microsoft.UI.Xaml.Markup.Compiler.Executable -Version $version -OutputDirectory BuildOutput/kotlin-release
+          $sdkOptions = @{}
+          if ('${{ matrix.framework }}' -eq 'uwp') { $sdkOptions.WindowsSdkVersions = @('${{ steps.sdk.outputs.version }}') }
+          ./src/XamlCompiler/Tools/Package-KotlinXamlCompiler.ps1 -CompilerDirectory BuildOutput/obj/amd64fre/src/XamlCompiler/Exe/Microsoft.UI.Xaml.Markup.Compiler.Executable -Version $version -OutputDirectory BuildOutput/kotlin-release -Framework '${{ matrix.framework }}' @sdkOptions
       - name: Run packaged Kotlin compiler and existing CSharp / CppWinRT regression
         shell: pwsh
         run: |
@@ -70,6 +94,11 @@ jobs:
             "$pwd/BuildOutput/ci-packages/Microsoft.WindowsAppSDK.Foundation.2.3.12/metadata",
             "$pwd/BuildOutput/ci-packages/Microsoft.WindowsAppSDK.InteractiveExperiences.2.1.9/metadata/10.0.18362.0"
           )
+          $genXbf = "$pwd/BuildOutput/ci-packages/Microsoft.WindowsAppSDK.WinUI.2.3.9/tools"
+          if ('${{ matrix.framework }}' -eq 'uwp') {
+            $refs = @(Get-ChildItem -LiteralPath $env:KOTLIN_UWP_SDK_REFERENCES -Filter '*.winmd' -Recurse | ForEach-Object DirectoryName | Sort-Object -Unique)
+            $genXbf = $env:KOTLIN_UWP_GENXBF
+          }
           $repo = $pwd.Path
           $unpacked = Join-Path $repo 'BuildOutput/kotlin-release-check'
           $archive = @(Get-ChildItem BuildOutput/kotlin-release -Filter '*.zip')
@@ -82,46 +111,33 @@ jobs:
           }
           Push-Location $unpacked
           try {
-            & "$repo/src/XamlCompiler/Tests/Kotlin/Test-DeclarationIndex.ps1" -Compiler "$unpacked/XamlCompiler.exe" -ReferenceDirectories $refs -OutputDirectory "$repo/BuildOutput/kotlin-tests"
-            $resourceRoot = Join-Path $repo 'BuildOutput/kotlin-package-xbf'
-            New-Item -ItemType Directory -Path $resourceRoot -Force | Out-Null
-            $xaml = Join-Path $resourceRoot 'Resources.xaml'
-            '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"><SolidColorBrush x:Key="AccentBrush" Color="CornflowerBlue" /></ResourceDictionary>' | Set-Content -LiteralPath $xaml -Encoding utf8NoBOM
-            $references = @($refs | ForEach-Object { Get-ChildItem -LiteralPath $_ -Filter '*.winmd' } | ForEach-Object { @{ ItemSpec = $_.FullName; FullPath = $_.FullName; IsSystemReference = $true } })
-            $input = @{
-              ProjectPath = "$resourceRoot/probe.proj"; ProjectName = 'probe'; RootNamespace = 'probe'; OutputType = 'WinExe'
-              Language = 'Kotlin'; LanguageSourceExtension = '.kt'; IsPass1 = $true
-              OutputPath = "$resourceRoot/compiled"; SavedStateFile = "$resourceRoot/state.xml"; TargetPlatformMinVersion = '10.0.19041.0'
-              ReferenceAssemblies = $references; ReferenceAssemblyPaths = @($refs + "$env:WINDIR/Microsoft.NET/Framework64/v4.0.30319" | ForEach-Object { @{ ItemSpec = $_; FullPath = $_ } })
-              GenXbfPath = "$repo/BuildOutput/ci-packages/Microsoft.WindowsAppSDK.WinUI.2.3.9/tools"
-              XamlPages = @(@{ ItemSpec = $xaml; FullPath = $xaml }); DisableXbfGeneration = $false
-            }
-            $input | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath "$resourceRoot/input.json" -Encoding utf8NoBOM
-            & ./XamlCompiler.exe "$resourceRoot/input.json" "$resourceRoot/declarations.json"
-            if ($LASTEXITCODE) {
-              Get-Content -LiteralPath "$resourceRoot/declarations.json"
-              throw 'Packaged Kotlin declaration compilation failed'
-            }
-            $declarations = (Get-Content -LiteralPath "$resourceRoot/declarations.json" -Raw | ConvertFrom-Json).KotlinDeclarations
-            $input.IsPass1 = $false
-            $input.KotlinSymbols = @{ SchemaVersion = $declarations.SchemaVersion; DeclarationFingerprint = ('a' * 64); Declarations = $declarations; Pages = @() }
-            $input | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath "$resourceRoot/input.json" -Encoding utf8NoBOM
-            & ./XamlCompiler.exe "$resourceRoot/input.json" "$resourceRoot/output.json"
-            if ($LASTEXITCODE) {
-              Get-Content -LiteralPath "$resourceRoot/output.json"
-              throw 'Packaged Kotlin XBF compilation failed'
-            }
-            $result = Get-Content -LiteralPath "$resourceRoot/output.json" -Raw | ConvertFrom-Json
-            if (!$result.GeneratedXbfFiles.Count -or !(Get-ChildItem "$resourceRoot/compiled" -Recurse -Filter '*.xbf')) { throw 'Packaged Kotlin compiler produced no XBF' }
+            & "$repo/src/XamlCompiler/Tests/Kotlin/Test-DeclarationIndex.ps1" -Compiler "$unpacked/XamlCompiler.exe" -ReferenceDirectories $refs -OutputDirectory "$repo/BuildOutput/kotlin-tests" -Framework '${{ matrix.framework }}' -GenXbfDirectory $genXbf
           } finally { Pop-Location }
       - uses: actions/upload-artifact@v4
         with:
-          name: kotlin-xamlc-win-x64
+          name: kotlin-xamlc-${{ matrix.framework }}-win-x64
           path: |
             BuildOutput/kotlin-release/*.zip
             BuildOutput/kotlin-release/*.sha256
-      - name: Publish tagged compiler release
-        if: startsWith(github.ref, 'refs/tags/kotlin-xamlc-v')
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kotlin-xamlc-${{ matrix.framework }}-test-results
+          path: BuildOutput/kotlin-tests
+  release:
+    if: startsWith(github.ref, 'refs/tags/kotlin-xamlc-v')
+    needs: compiler
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: kotlin-xamlc-*-win-x64
+          merge-multiple: true
+          path: BuildOutput/kotlin-release
+      - name: Publish both framework compilers
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
@@ -129,7 +145,5 @@ jobs:
           $assets = @(Get-ChildItem BuildOutput/kotlin-release -File | Where-Object { $_.Name -match '\.(zip|sha256)$' } | ForEach-Object FullName)
           $releaseOptions = @()
           if (($env:GITHUB_REF_NAME -replace '^kotlin-xamlc-v', '') -match '-') { $releaseOptions += '--prerelease' }
-          gh release create $env:GITHUB_REF_NAME @assets @releaseOptions --verify-tag --title $env:GITHUB_REF_NAME --notes 'Kotlin XamlCompiler protocol v3: x:Properties, typed compiled bindings, template scopes, x:Phase and deferred elements. GenXbf is supplied by the selected Windows App SDK NuGet package.'
+          gh release create $env:GITHUB_REF_NAME @assets @releaseOptions --verify-tag --title $env:GITHUB_REF_NAME --notes 'Kotlin XamlCompiler protocol v3 for WinUI and UWP: x:Properties, typed compiled bindings, template scopes, x:Phase and deferred elements. Select the matching framework archive; GenXbf comes from its Windows App SDK package or Windows SDK.'
           if ($LASTEXITCODE) { throw 'Release upload failed' }
-    permissions:
-      contents: write

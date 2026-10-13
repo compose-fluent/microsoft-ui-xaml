@@ -281,6 +281,13 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         // Populates inputs common to both the executable and MSBuild task compiler
         public void PopulateFromCompilerInputs(CompilerInputs i)
         {
+            // The MSBuild task and older executable callers omit this field.
+            // Their framework is the one selected when compiling this artifact.
+            var framework = i.XamlFramework ?? KnownNamespaces.XamlFramework;
+            if (!String.Equals(framework, KnownNamespaces.XamlFramework, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException($"This XAML compiler targets '{KnownNamespaces.XamlFramework}', not '{framework}'. Select the matching Kotlin XAML compiler package.");
+            }
             KotlinSymbols = i.KotlinSymbols;
             FeatureControlFlags = TryParseFeatureFlags(i.FeatureControlFlags);
 
@@ -844,7 +851,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
             {
                 if (IsKotlin)
                 {
-                    KotlinDeclarations = new KotlinXamlDeclarationIndex();
+                    KotlinDeclarations = new KotlinXamlDeclarationIndex { Framework = KnownNamespaces.XamlFramework };
                     if (KotlinSymbols != null)
                         KotlinXamlDeclarationWriter.ValidateSymbols(Array.Empty<XamlClassCodeInfo>(), KotlinDeclarations, KotlinSymbols);
                     if (!IsPass1)

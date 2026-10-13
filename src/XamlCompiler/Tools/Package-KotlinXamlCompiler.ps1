@@ -1,13 +1,15 @@
 param(
     [Parameter(Mandatory)] [string] $CompilerDirectory,
     [Parameter(Mandatory)] [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.-]+)?$')] [string] $Version,
-    [Parameter(Mandatory)] [string] $OutputDirectory
+    [Parameter(Mandatory)] [string] $OutputDirectory,
+    [ValidateSet('winui', 'uwp')] [string] $Framework = 'winui',
+    [string[]] $WindowsSdkVersions = @('10.0.26100.0')
 )
 $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
 $compiler = (Resolve-Path -LiteralPath $CompilerDirectory).Path
 $output = [IO.Path]::GetFullPath($OutputDirectory)
-$packageName = "kotlin-xamlc-$Version-win-x64"
+$packageName = if ($Framework -eq 'uwp') { "kotlin-xamlc-$Version-uwp-win-x64" } else { "kotlin-xamlc-$Version-win-x64" }
 $stage = Join-Path $output $packageName
 if (Test-Path -LiteralPath $stage) { throw "Package staging directory already exists: $stage" }
 if (!(Test-Path -LiteralPath (Join-Path $compiler 'XamlCompiler.exe'))) { throw 'XamlCompiler.exe is missing.' }
@@ -34,13 +36,18 @@ $manifest = [ordered]@{
     executable = 'XamlCompiler.exe'
     execution = @{ kind = 'executable'; arguments = @('input.json', 'output.json') }
     runtime = @{ kind = 'net-framework'; minimumVersion = '4.7.2'; minimumRelease = 461808 }
-    compatibility = @{
+    compatibility = if ($Framework -eq 'uwp') { @{
+        frameworks = @('uwp')
+        windowsSdkVersions = $WindowsSdkVersions
+        genXbfHost = 'win-x64'
+    } } else { @{
+        frameworks = @('winui')
         windowsAppSdk = @('2.5.1')
         winuiPackage = 'Microsoft.WindowsAppSDK.WinUI'
         winuiVersions = @('2.3.9')
         genXbfHost = 'win-x64'
-    }
-    genXbf = 'Provided by the selected Microsoft.WindowsAppSDK.WinUI NuGet package'
+    } }
+    genXbf = if ($Framework -eq 'uwp') { 'Provided by the selected Windows SDK XamlCompiler directory' } else { 'Provided by the selected Microsoft.WindowsAppSDK.WinUI NuGet package' }
     files = $files
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $stage 'kotlin-xamlc.json') -Encoding utf8NoBOM

@@ -37,6 +37,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler.MSBuildInterop
         public int SchemaVersion { get; set; } = 3;
         public List<KotlinXamlPageDeclaration> Pages { get; set; } = new List<KotlinXamlPageDeclaration>();
         public List<string> Resources { get; set; } = new List<string>();
+        public string Framework { get; set; } = "winui";
     }
 
     public sealed class KotlinXamlPageDeclaration

@@ -111,7 +111,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         {
             get
             {
-                return "Microsoft.UI.Xaml.Markup";
+                return KnownNamespaces.XamlMarkup;
             }
         }
 

@@ -1,16 +1,22 @@
 param(
     [Parameter(Mandatory)] [string] $Compiler,
     [Parameter(Mandatory)] [string[]] $ReferenceDirectories,
-    [Parameter(Mandatory)] [string] $OutputDirectory
+    [Parameter(Mandatory)] [string] $OutputDirectory,
+    [ValidateSet('winui', 'uwp')] [string] $Framework = 'winui',
+    [string] $GenXbfDirectory
 )
 $ErrorActionPreference = 'Stop'
+$xamlNamespace = if ($Framework -eq 'uwp') { 'Windows.UI.Xaml' } else { 'Microsoft.UI.Xaml' }
 $Compiler = (Resolve-Path -LiteralPath $Compiler).Path
 $root = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force $root | Out-Null
 $references = @($ReferenceDirectories | ForEach-Object {
     Get-ChildItem -LiteralPath $_ -Filter *.winmd
 } | Sort-Object FullName | ForEach-Object {
-    @{ ItemSpec = $_.FullName; FullPath = $_.FullName; IsSystemReference = $true }
+    # These are individual SDK contracts, not the Windows.winmd facade that XAMLC
+    # eagerly loads for MSBuild. Keep the complete resolved set visible in pass 1,
+    # matching the Kotlin Gradle caller instead of deferring it as system extras.
+    @{ ItemSpec = $_.FullName; FullPath = $_.FullName }
 })
 if (!$references.Count) { throw 'No WinMD references supplied.' }
 $searchPaths = @($ReferenceDirectories + "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319" | ForEach-Object {
@@ -26,6 +32,7 @@ $xaml = @'
 $pagePath = Join-Path $root 'MainPage.xaml'
 [IO.File]::WriteAllText($pagePath, $xaml)
 $inputs = @{
+    XamlFramework = $Framework
     ProjectPath = "$root/probe.proj"; ProjectName = 'probe'; Language = 'Kotlin'; LanguageSourceExtension = '.kt'
     OutputPath = "$root/generated"; IsPass1 = $true; RootNamespace = 'probe'; OutputType = 'WinExe'
     TargetPlatformMinVersion = '10.0.19041.0'; ReferenceAssemblies = $references; ReferenceAssemblyPaths = $searchPaths
@@ -49,31 +56,40 @@ function Assert([bool] $condition, [string] $message) {
     if (!$condition) { throw $message }
 }
 $first = (Compile 'first').KotlinDeclarations
+Assert ($first.Framework -eq $Framework) 'Incorrect XAML framework.'
 Assert ($first.SchemaVersion -eq 3) 'Missing protocol version.'
 Assert ($first.Pages.Count -eq 1) 'Expected exactly one page.'
 $page = $first.Pages[0]
 Assert ($page.ClassName -eq 'probe.MainPage') 'Incorrect x:Class.'
 Assert ($page.ResourcePath -eq 'MainPage.xaml') 'Absolute or incorrect resource path.'
-Assert ($page.BaseTypeName -eq 'Microsoft.UI.Xaml.Controls.Page') 'Incorrect root type.'
+Assert ($page.BaseTypeName -eq "$xamlNamespace.Controls.Page") 'Incorrect root type.'
 $button = @($page.Connections | Where-Object FieldName -EQ 'myButton')[0]
-Assert ($button.TypeName -eq 'Microsoft.UI.Xaml.Controls.Button') 'Incorrect named-element type.'
+Assert ($button.TypeName -eq "$xamlNamespace.Controls.Button") 'Incorrect named-element type.'
 Assert ($button.Events[0].HandlerName -eq 'onClick') 'Missing event handler.'
 Assert ($button.Events[0].Location.Line -eq 4 -and $button.Events[0].Location.Column -eq 45) 'Incorrect source location.'
 $second = (Compile 'second').KotlinDeclarations
+$inputs.Remove('XamlFramework')
+$implicitFramework = (Compile 'implicit-framework').KotlinDeclarations
+Assert ($implicitFramework.Framework -eq $Framework) 'Legacy input did not use the compiler artifact framework.'
+$inputs.XamlFramework = $Framework
 Assert (($first | ConvertTo-Json -Depth 12 -Compress) -ceq ($second | ConvertTo-Json -Depth 12 -Compress)) 'Non-deterministic index.'
 
 $inputs.KotlinSymbols = @{
     SchemaVersion = $first.SchemaVersion; DeclarationFingerprint = ('a' * 64); Declarations = $first
     Pages = @(@{ ClassName = 'probe.MainPage'; Handlers = @(@{
         Name = 'onClick'; ReturnTypeName = 'System.Void'
-        ParameterTypeNames = @('System.Object', 'Microsoft.UI.Xaml.RoutedEventArgs')
+        ParameterTypeNames = @('System.Object', "$xamlNamespace.RoutedEventArgs")
     }) })
 }
 $null = Compile 'valid-handler'
+$inputs.KotlinSymbols.Declarations.Framework = if ($Framework -eq 'uwp') { 'winui' } else { 'uwp' }
+$wrongFramework = Compile 'wrong-framework-symbols' 1
+Assert (($wrongFramework.MSBuildLogEntries | Where-Object Type -EQ 2).Message -match 'changed after semantic') 'Symbols from another framework were accepted.'
+$inputs.KotlinSymbols.Declarations.Framework = $Framework
 $inputs.KotlinSymbols.Pages[0].Handlers[0].ParameterTypeNames = @('System.Object', 'System.String')
 $invalid = Compile 'invalid-handler' 1
 Assert (($invalid.MSBuildLogEntries | Where-Object Type -EQ 2).Message -match 'does not match') 'Wrong event signature was not diagnosed.'
-$inputs.KotlinSymbols.Pages[0].Handlers[0].ParameterTypeNames = @('System.Object', 'Microsoft.UI.Xaml.RoutedEventArgs')
+$inputs.KotlinSymbols.Pages[0].Handlers[0].ParameterTypeNames = @('System.Object', "$xamlNamespace.RoutedEventArgs")
 [IO.File]::WriteAllText($pagePath, $xaml.Replace('myButton', 'renamedButton'))
 $stale = Compile 'stale-symbols' 1
 Assert (($stale.MSBuildLogEntries | Where-Object Type -EQ 2).Message -match 'changed after semantic') 'Stale semantic declarations were accepted.'
@@ -112,7 +128,7 @@ Assert ($content.ChangedHandler -eq 'ContentValueUpdated' -and $content.DefaultV
     $content.DefaultValueMarkup -match 'xmlns=') 'Missing complex-default fragment or namespace.'
 $inputs.KotlinSymbols = @{ SchemaVersion = $propertyIndex.SchemaVersion; DeclarationFingerprint = ('c' * 64); Declarations = $propertyIndex
     Pages = @(@{ ClassName = 'probe.MainPage'; Handlers = @(@{ Name = 'onClick'; ReturnTypeName = 'System.Void'
-        ParameterTypeNames = @('System.Object', 'Microsoft.UI.Xaml.RoutedEventArgs') }) }) }
+        ParameterTypeNames = @('System.Object', "$xamlNamespace.RoutedEventArgs") }) }) }
 $null = Compile 'properties-symbols'
 [IO.File]::WriteAllText($pagePath, $propertyXaml.Replace('DefaultValue="2"', 'DefaultValue="3"'))
 $changedDefault = Compile 'properties-stale-default' 1
@@ -130,10 +146,24 @@ $inputs.IsPass1 = $true
 $inputs.Remove('KotlinSymbols')
 
 $dictionaryPath = Join-Path $root 'Resources.xaml'
-[IO.File]::WriteAllText($dictionaryPath, '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" />')
+[IO.File]::WriteAllText($dictionaryPath, '<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"><SolidColorBrush x:Key="Accent" Color="#336699" /></ResourceDictionary>')
 $inputs.XamlPages = @(@{ ItemSpec = $dictionaryPath; FullPath = $dictionaryPath })
 $resource = (Compile 'resource').KotlinDeclarations
 Assert ($resource.Pages.Count -eq 0 -and $resource.Resources[0] -eq 'Resources.xaml') 'Classless dictionary became a page.'
+if ($GenXbfDirectory) {
+    $inputs.IsPass1 = $false
+    $inputs.DisableXbfGeneration = $false
+    $inputs.GenXbfPath = (Resolve-Path -LiteralPath $GenXbfDirectory).Path
+    $inputs.KotlinSymbols = @{ SchemaVersion = $resource.SchemaVersion; DeclarationFingerprint = ('d' * 64); Declarations = $resource; Pages = @() }
+    $compiledResource = Compile 'resource-xbf'
+    Assert ($compiledResource.GeneratedXbfFiles.Count -eq 1) 'Expected one compiled resource dictionary.'
+    $xbf = [IO.File]::ReadAllBytes($compiledResource.GeneratedXbfFiles[0])
+    Assert ($xbf.Length -gt 32 -and $xbf[0] -eq 0x58 -and $xbf[1] -eq 0x42 -and $xbf[2] -eq 0x46) 'GenXbf did not emit an XBF binary.'
+    $inputs.Remove('KotlinSymbols')
+    $inputs.Remove('GenXbfPath')
+    $inputs.IsPass1 = $true
+    $inputs.DisableXbfGeneration = $true
+}
 
 [IO.File]::WriteAllText($pagePath, $xaml)
 $inputs.XamlPages = @(@{ ItemSpec = $pagePath; FullPath = $pagePath })

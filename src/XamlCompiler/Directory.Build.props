@@ -4,6 +4,8 @@
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
   <Import Project="$(ProjectRoot)eng\winui-version.props" />
   <PropertyGroup>
+    <KotlinXamlFramework Condition="'$(KotlinXamlFramework)' == ''">winui</KotlinXamlFramework>
+    <DefineConstants Condition="'$(KotlinXamlFramework)' == 'uwp'">$(DefineConstants);KOTLIN_UWP_XAML</DefineConstants>
     <PublicMUXDir>$(ArtifactsBinDir)Product\</PublicMUXDir>
     <GenerateProjectSpecificOutputFolder>True</GenerateProjectSpecificOutputFolder>
     <TestCertificatePath>$(ProjectRoot)build\WinUITest.pfx</TestCertificatePath>

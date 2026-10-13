@@ -22,7 +22,13 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         public const string WindowsFoundationCollections = "Windows.Foundation.Collections";
         public const string WindowsUI = "Windows.UI";
         public const string Text = "Windows.UI.Text";
-        public const string Xaml = "Microsoft.UI.Xaml"; // change to Microsoft.UI.Xaml to compile using the MUX namespace
+#if KOTLIN_UWP_XAML
+        public const string Xaml = "Windows.UI.Xaml";
+        public const string XamlFramework = "uwp";
+#else
+        public const string Xaml = "Microsoft.UI.Xaml";
+        public const string XamlFramework = "winui";
+#endif
         public const string XamlAutomation = Xaml + ".Automation";
         public const string XamlAutomationPeers = XamlAutomation + ".Peers";
         public const string XamlAutomationProvider = XamlAutomation + ".Provider";
@@ -216,7 +222,7 @@ namespace Microsoft.UI.Xaml.Markup.Compiler
         public const string DeprecatedAttributeDefaultMessage = "Deprecated";
         public const string ObsoleteAttributeDefaultMessage = "Obsolete";
         public const string PlatformAssemblySentinelType = "Windows.Foundation.HResult";
-        public const string WinUIAssemblySentinelType = "Microsoft.UI.Xaml.DependencyObject";
+        public const string WinUIAssemblySentinelType = KnownNamespaces.Xaml + ".DependencyObject";
 
         public const string MsCorLib = "mscorlib";
 
